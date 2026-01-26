@@ -1,2 +1,32 @@
-# Auto detect text files and perform LF normalization
+# Auto detect text files and normalize to LF
 * text=auto
+
+# Git LFS for Unreal binary files
+*.uasset filter=lfs diff=lfs merge=lfs -text
+*.umap   filter=lfs diff=lfs merge=lfs -text
+*.ubulk  filter=lfs diff=lfs merge=lfs -text
+*.uexp   filter=lfs diff=lfs merge=lfs -text
+*.ufont  filter=lfs diff=lfs merge=lfs -text
+
+# Raw content and media types
+*.fbx  filter=lfs diff=lfs merge=lfs -text
+*.3ds  filter=lfs diff=lfs merge=lfs -text
+*.psd  filter=lfs diff=lfs merge=lfs -text
+*.png  filter=lfs diff=lfs merge=lfs -text
+*.mp3  filter=lfs diff=lfs merge=lfs -text
+*.wav  filter=lfs diff=lfs merge=lfs -text
+*.xcf  filter=lfs diff=lfs merge=lfs -text
+*.jpg  filter=lfs diff=lfs merge=lfs -text
+
+# Optional: track all large files in this folder
+# (only if using non-standard file types)
+#/RawContent/**/* filter=lfs diff=lfs merge=lfs -text
+
+# Text source files
+*.cpp text
+*.h text
+*.cs text
+*.ini text
+*.json text
+*.xml text
+*.txt text

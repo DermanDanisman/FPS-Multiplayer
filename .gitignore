@@ -1,0 +1,71 @@
+# === Unreal Engine Project Ignore ===
+
+# Engine-generated folders
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# IDE and project files (auto-generated)
+.vs/
+.idea/
+*.sln
+*.suo
+*.vcxproj*
+*.xcodeproj
+*.xcworkspace
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.csproj
+*.dbmdl
+*.DotSettings*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Compiled files
+*.exe
+*.dll
+*.lib
+*.app
+*.so
+*.dylib
+*.pdb
+*.obj
+*.o
+*.a
+*.lo
+*.slo
+*.mod
+*.out
+*.ipa
+
+# Precompiled headers
+*.pch
+*.gch
+
+# Unreal Engine cache & generated assets
+*_BuiltData.uasset
+
+# Ignore plugin binaries and intermediates but keep source
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# Optional: ignore unused source art
+SourceArt/**/*.png
+SourceArt/**/*.tga
+
+# Whitelist essential build configs and icons
+!Build/**/*.ico
+!Build/**/PakBlacklist*.txt
+
+# === Do NOT Ignore ===
+# /Content/
+# /Config/
+# /Source/
+# *.uproject
