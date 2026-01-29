@@ -14,6 +14,19 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	
+	// Create the Shadow Mesh
+	ShadowMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ShadowMesh"));
+	ShadowMesh->SetupAttachment(GetMesh()); // Attach to main mesh logic
+    
+	// CRITICAL SETTINGS:
+	ShadowMesh->SetCastShadow(true);            // We WANT shadows
+	ShadowMesh->SetRenderInMainPass(false);     // We DO NOT want to see the mesh itself
+	ShadowMesh->SetCastHiddenShadow(true);      // Allow casting even if "hidden" logic applies
+    
+	// Optimization: Disable collision and ticking (it will follow Master Pose)
+	ShadowMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ShadowMesh->SetComponentTickEnabled(false);
+	
 	// 1. CAMERA SETUP (FPS Style)
 	// We usually attach the camera directly to the mesh or a socket for FPS,
 	// but a SpringArm is fine if you want flexibility (e.g., death cam).
@@ -45,6 +58,29 @@ void AFPSPlayerCharacter::BeginPlay()
 		{
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
+	}
+	
+	if (IsLocallyControlled())
+	{
+		// 1. Setup Main Mesh (Visuals) - HIDE HEAD
+		GetMesh()->HideBoneByName(FName("head"), EPhysBodyOp::PBO_None);
+
+		// 2. Setup Shadow Mesh (Shadows) - SHOW HEAD
+        
+		// A. Ensure it uses the same mesh asset
+		ShadowMesh->SetSkinnedAssetAndUpdate(GetMesh()->GetSkinnedAsset());
+
+		// C. Visibility Settings
+		ShadowMesh->SetCastShadow(true);
+		ShadowMesh->SetRenderInMainPass(false); // Invisible to camera
+		ShadowMesh->SetCastHiddenShadow(true);  // Casts shadow anyway
+		ShadowMesh->SetHiddenInGame(false);     // Component is "Active"
+	}
+	else
+	{
+		// Remote players just see the main mesh normally
+		ShadowMesh->SetHiddenInGame(true);
+		ShadowMesh->SetCastShadow(false); 
 	}
 }
 

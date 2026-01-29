@@ -37,6 +37,10 @@
 				"IOS",
 				"TVOS"
 			]
+		},
+		{
+			"Name": "MotionWarping",
+			"Enabled": true
 		}
 	]
 }

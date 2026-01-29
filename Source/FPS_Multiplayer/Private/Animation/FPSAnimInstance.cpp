@@ -1,17 +1,41 @@
 // © 2025 Heathrow (Derman Can Danisman). All rights reserved.
 
-
 #include "FPS_Multiplayer/Public/Animation/FPSAnimInstance.h"
-
 #include "FPS_Multiplayer/Public/Character/FPSPlayerCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 
+// =========================================================================
+//                           LIFECYCLE
+// =========================================================================
+
 void UFPSAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+	UpdateReferences();
+}
+
+void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
+{
+	Super::NativeUpdateAnimation(DeltaSeconds);
 	
-	// 1. Get the Owner
+	// 1. Safety Check: Ensure character exists before trying to access data.
+	if (!FPSCharacter.IsValid())
+	{
+		UpdateReferences();
+		if (!FPSCharacter.IsValid()) return;
+	}
+
+	// 2. Execute Logic Chain
+	CalculateEssentialData();
+	CalculateLocomotionDirection();
+	CalculateMovementDirectionMode();
+	CalculateGaitValue();
+	CalculatePlayRate();
+}
+
+void UFPSAnimInstance::UpdateReferences()
+{
 	APawn* PawnOwner = TryGetPawnOwner();
 	if (PawnOwner)
 	{
@@ -23,75 +47,156 @@ void UFPSAnimInstance::NativeInitializeAnimation()
 	}
 }
 
+// =========================================================================
+//                           CALCULATIONS
+// =========================================================================
+
+void UFPSAnimInstance::CalculateEssentialData()
+{
+	// -- Velocity & Speed --
+	Velocity = MovementComponent.Get()->Velocity;
+	GroundSpeed = FVector(Velocity.X, Velocity.Y, 0.f).Size(); // Ignore Z for locomotion
+
+	// -- State Booleans --
+	bIsAccelerating = (MovementComponent.Get()->GetCurrentAcceleration().SizeSquared() > 0.f);
+	bIsFalling = MovementComponent.Get()->IsFalling();
+	bIsCrouching = FPSCharacter->IsCrouched();
+	bCanJump = FPSCharacter->CanJump();
+    
+	// "ShouldMove" gate: Only true if we have input AND reasonable speed.
+	// Threshold (100.0f) prevents tiny micro-movements from triggering start animations.
+	bShouldMove = bIsAccelerating && (GroundSpeed > 100.0f);
+	
+	// -- History Data (For future Stop/Pivot logic) --
+	LastVelocityRotation = UKismetMathLibrary::MakeRotFromX(FPSCharacter->GetVelocity());
+	bHasMovementInput = MovementComponent->GetLastInputVector().SizeSquared() > 0.f;
+	LastMovementInputRotation = UKismetMathLibrary::MakeRotFromX(MovementComponent->GetLastInputVector());
+	MovementInputVelocityDifference = UKismetMathLibrary::NormalizedDeltaRotator(LastMovementInputRotation, LastVelocityRotation).Yaw;
+}
+
+void UFPSAnimInstance::CalculateLocomotionDirection()
+{
+	// Don't update direction if standing still to prevent the value from snapping to 0.
+	if (GroundSpeed < 100.0f || !FPSCharacter.IsValid()) return;
+
+	// Calculate direction of movement relative to the character's facing direction.
+	// Result: -180 to 180 degrees.
+	FRotator ActorRotation = FPSCharacter.Get()->GetActorRotation();
+	FRotator VelocityRotation = UKismetMathLibrary::MakeRotFromX(Velocity);
+    
+	Direction = UKismetMathLibrary::NormalizedDeltaRotator(VelocityRotation, ActorRotation).Yaw;
+	LocomotionDirection = Direction;
+}
+
+void UFPSAnimInstance::CalculateMovementDirectionMode()
+{
+	// Hysteresis Logic: Prevents "Flickering" between Forward and Backward animations
+	// when strafing exactly sideways (90 degrees).
+	
+	// Calculate Buffered Thresholds
+	float WideMin = DirectionThresholdMin - Buffer; // e.g. -95
+	float WideMax = DirectionThresholdMax + Buffer; // e.g.  95
+	float NarrowMin = DirectionThresholdMin + Buffer; // e.g. -85
+	float NarrowMax = DirectionThresholdMax - Buffer; // e.g.  85
+    
+	bool bInWideRange = UKismetMathLibrary::InRange_FloatFloat(Direction, WideMin, WideMax, true, true);
+	bool bInNarrowRange = UKismetMathLibrary::InRange_FloatFloat(Direction, NarrowMin, NarrowMax, true, true);
+    
+	// Switch Logic
+	if (!bInWideRange)
+	{
+		// Definitely moving backwards (e.g. 180 deg)
+		MovementDirectionMode = EMovementDirectionMode::Backward;
+	}
+	else if (bInNarrowRange)
+	{
+		// Definitely moving forwards (e.g. 0 deg)
+		MovementDirectionMode = EMovementDirectionMode::Forward;
+	}
+	// If in between (Grey Zone), keep the previous state.
+}
+
 void UFPSAnimInstance::CalculateGaitValue()
 {
-	// --- CALCULATE GAIT VALUE ---
-	// Logic: Map Speed to Gait (0=Idle, 1=Walk, 2=Run, 3=Sprint)
-
+	// Map current Speed to a Gait Value (0=Idle, 1=Walk, 2=Run, 3=Sprint)
+	
 	if (GroundSpeed > RunSpeed)
 	{
-		// Map range from [Run -> Sprint] to [2.0 -> 3.0]
+		// Blending Run to Sprint (2.0 -> 3.0)
 		GaitValue = FMath::GetMappedRangeValueClamped(
-			FVector2D(RunSpeed, SprintSpeed), // Input Range
-			FVector2D(2.0f, 3.0f),            // Output Range
-			GroundSpeed                       // Value to Map
+			FVector2D(RunSpeed, SprintSpeed),
+			FVector2D(RunGaitValue, SprintGaitValue), 
+			GroundSpeed
 		);
 	}
-	else if (GroundSpeed > WalkSpeed)
+	else if (GroundSpeed > WalkSpeed && GroundSpeed <= RunSpeed)
 	{
-		// Map range from [Walk -> Run] to [1.0 -> 2.0]
+		// Blending Walk to Run (1.0 -> 2.0)
 		GaitValue = FMath::GetMappedRangeValueClamped(
 			FVector2D(WalkSpeed, RunSpeed), 
-			FVector2D(1.0f, 2.0f), 
+			FVector2D(WalkGaitValue, RunGaitValue), 
 			GroundSpeed
 		);
 	}
 	else
 	{
-		// Map range from [0 -> Walk] to [0.0 -> 1.0]
+		// Blending Stop to Walk (0.0 -> 1.0)
 		GaitValue = FMath::GetMappedRangeValueClamped(
 			FVector2D(0.f, WalkSpeed), 
-			FVector2D(0.0f, 1.0f), 
+			FVector2D(0.0f, WalkGaitValue), 
 			GroundSpeed
 		);
 	}
 }
 
-void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
+void UFPSAnimInstance::CalculatePlayRate()
 {
-	Super::NativeUpdateAnimation(DeltaSeconds);
+	// Stride Warping: Adjusts animation playback speed to prevent foot sliding.
+	// Concept: PlayRate = ActualSpeed / ReferenceAnimationSpeed
 	
-	// 1. Safety Check (Smart Pointer)
-	// If character is null or pending kill, stop.
-	if (!FPSCharacter.IsValid() || !MovementComponent.IsValid())
+	if (GroundSpeed < 5.f)
 	{
-		// Try to init again (handle cases where Anim loads before Character)
-		NativeInitializeAnimation();
+		PlayRate = 1.0f;
 		return;
 	}
-	
-	// 2. GET SPEED
-	FVector Velocity = MovementComponent->Velocity;
-	Velocity.Z = 0.f; // Ignore vertical speed for walking anims
-	GroundSpeed = Velocity.Size();
 
-	// 3. GET FALLING STATE
-	bIsFalling = MovementComponent->IsFalling();
+	// 1. Determine what the "Reference Speed" should be based on current Gait.
+	// This represents the speed the animation *wants* to move at.
+	float ReferenceAnimSpeed = WalkSpeed;
 
-	// 4. GET ACCELERATION (Are we pressing keys?)
-	// Use CurrentAcceleration, not Velocity. 
-	// (You can be moving but not accelerating if sliding on ice or stopping)
-	bIsAccelerating = MovementComponent->GetCurrentAcceleration().Size() > 0.f;
+	if (GaitValue >= RunGaitValue) 
+	{
+		// Between Run and Sprint
+		ReferenceAnimSpeed = FMath::GetMappedRangeValueClamped(
+			FVector2D(RunGaitValue, SprintGaitValue), 
+			FVector2D(RunSpeed, SprintSpeed), 
+			GaitValue
+		);
+	}
+	else 
+	{
+		// Between Walk and Run
+		ReferenceAnimSpeed = FMath::GetMappedRangeValueClamped(
+			FVector2D(WalkGaitValue, RunGaitValue), 
+			FVector2D(WalkSpeed, RunSpeed),
+			GaitValue
+		);
+	}
 
-	// 5. GET DIRECTION (For Strafing)
-	// We need to know the angle between our Velocity and our Aim Rotation.
-	FRotator AimRotation = FPSCharacter->GetBaseAimRotation();
-	FRotator MovementRotation = UKismetMathLibrary::MakeRotFromX(Velocity);
-    
-	// Calculate Delta (Difference)
-	// Normalized ensures result is between -180 and 180
-	Direction = UKismetMathLibrary::NormalizedDeltaRotator(MovementRotation, AimRotation).Yaw;
-	
-	// --- CALCULATE GAIT VALUE ---
-	CalculateGaitValue();
+	// 2. Calculate the ratio
+	PlayRate = GroundSpeed / ReferenceAnimSpeed;
+
+	// 3. Scale Adjustment (Pro Move)
+	// If the character mesh is scaled (e.g. giant or dwarf), the stride length changes.
+	if (FPSCharacter.IsValid())
+	{
+		const float ScaleZ = FPSCharacter->GetActorScale3D().Z; 
+		if (!FMath::IsNearlyEqual(ScaleZ, 1.0f) && ScaleZ > 0.f)
+		{
+			PlayRate /= ScaleZ;
+		}
+	}
+
+	// 4. Clamp to prevent visual artifacts (super fast legs or freeze-frame legs)
+	PlayRate = FMath::Clamp(PlayRate, 0.5f, 2.0f);
 }
