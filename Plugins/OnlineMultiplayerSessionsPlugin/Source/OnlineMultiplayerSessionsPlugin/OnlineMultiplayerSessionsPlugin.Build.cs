@@ -29,7 +29,10 @@ public class OnlineMultiplayerSessionsPlugin : ModuleRules
 				"DeveloperSettings",
 				"UMG",
 				"NetCore", 
-				"EnhancedInput"
+				"EnhancedInput",
+				"CommonUI",
+				"CommonInput", 
+				"UMG"
 			}
 		);
 			
@@ -41,7 +44,6 @@ public class OnlineMultiplayerSessionsPlugin : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
-				"CommonUI", // We will need this soon for the UI module interface
 				"OnlineSubsystem",
 				"OnlineSubsystemUtils",
 				"OnlineSubsystemSteam", // NEW: Access Steam specific classes

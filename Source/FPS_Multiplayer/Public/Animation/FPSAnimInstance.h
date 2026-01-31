@@ -22,6 +22,13 @@ enum class EMovementDirectionMode : uint8
 	Backward UMETA(DisplayName = "Backward")
 };
 
+UENUM(BlueprintType)
+enum class EAnimStateMode : uint8
+{
+	Unarmed  UMETA(DisplayName = "Unarmed"),
+	Armed UMETA(DisplayName = "Armed")
+};
+
 /**
  * Main Animation Instance for the First Person Character.
  * * ARCHITECTURE:

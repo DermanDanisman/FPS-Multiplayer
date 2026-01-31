@@ -41,6 +41,14 @@
 		{
 			"Name": "MotionWarping",
 			"Enabled": true
+		},
+		{
+			"Name": "CommonUI",
+			"Enabled": true
+		},
+		{
+			"Name": "AnimTools",
+			"Enabled": true
 		}
 	]
 }

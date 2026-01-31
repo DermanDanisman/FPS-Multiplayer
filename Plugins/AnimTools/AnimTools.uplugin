@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AnimTools",
+	"Description": "",
+	"Category": "Animation",
+	"CreatedBy": "Heathrow (Derman Can Danisman)",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AnimTools",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"SupportURL": ""
+}
