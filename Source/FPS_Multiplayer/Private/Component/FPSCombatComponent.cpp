@@ -1,0 +1,159 @@
+// © 2026 Heathrow (Derman Can Danisman). All rights reserved.
+
+
+#include "Component/FPSCombatComponent.h"
+
+#include "Actor/Weapon/FPSWeapon.h"
+#include "Character/FPSPlayerCharacter.h"
+#include "Components/SphereComponent.h"
+#include "Components/WidgetComponent.h"
+#include "GameFramework/Character.h"
+#include "Net/UnrealNetwork.h"
+
+
+// Sets default values for this component's properties
+UFPSCombatComponent::UFPSCombatComponent()
+{
+	PrimaryComponentTick.bCanEverTick = false;
+	
+	// Correct Initialization for Components.
+	// "SetReplicates(true)" causes crashes in Constructors. This is the safe alternative.
+	SetIsReplicatedByDefault(true);
+}
+
+void UFPSCombatComponent::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	// 1. UI Logic: Only tell the owner (saves bandwidth).
+	DOREPLIFETIME_CONDITION(ThisClass, OverlappingWeapon, COND_OwnerOnly);
+	
+	// 2. Gameplay Logic: Tell EVERYONE (so they see the gun).
+	DOREPLIFETIME_CONDITION(ThisClass, EquippedWeapon, COND_None);
+}
+
+void UFPSCombatComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	
+}
+
+void UFPSCombatComponent::SetOverlappingWeapon(AFPSWeapon* NewOverlappingWeapon)
+{
+	// --- SERVER LOGIC ---
+
+	// 1. Capture Old Value
+	AFPSWeapon* OldWeapon = OverlappingWeapon;
+    
+	// 2. Update Variable
+	OverlappingWeapon = NewOverlappingWeapon;
+    
+	// 3. Broadcast Event
+	// We delegate the visual responsibility entirely to Blueprints now!
+	// Both Server and Client behave exactly the same way.
+	OnOverlappingWeaponChange.Broadcast(OldWeapon, NewOverlappingWeapon);
+}
+
+void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
+{
+	if (!IsValid(WeaponToEquip)) return;
+	
+	// --- STEP 1: AUTOMATIC NETWORK ROUTING ---
+	// If we are a Client, we cannot set variables. 
+	// So, we automatically call the Server RPC and return.
+	// The Blueprint user doesn't need to know this happened!
+	if (GetOwner() && !GetOwner()->HasAuthority())
+	{
+		Server_EquipWeapon(WeaponToEquip);
+		return; // Our job on the Client is done. The Server takes over.
+	}
+	
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (OwnerCharacter)
+	{
+		// 1. Update State (Server Side)
+		EquippedWeapon = WeaponToEquip;
+		EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+		
+		// 2. Attach Visuals (Server Side)
+		// The Server needs to see the attachment too!
+		EquippedWeapon->AttachToComponent(
+			OwnerCharacter->GetMesh(),
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+			CharacterWeaponSocket
+			);
+		
+		// 3. Set Owner
+		// Crucial for "IsLocallyControlled" checks and lag compensation later.
+		EquippedWeapon->SetOwner(OwnerCharacter);
+		
+		// 4. Cleanup
+		EquippedWeapon->GetAreaSphere()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		
+		if (WeaponToEquip)
+		{
+			// 1. Get the Data Packet
+			const FWeaponMovementData& WeaponData = WeaponToEquip->GetMovementData();
+
+			// 2. Apply Physics to Character
+			if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(GetOwner()))
+			{
+				FPSChar->UpdateMovementSettings(WeaponData);
+			}
+		}
+		
+		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
+	}
+	
+	// We picked it up, so we aren't "Overlapping" it anymore.
+	SetOverlappingWeapon(nullptr);
+}
+
+void UFPSCombatComponent::Server_EquipWeapon_Implementation(AFPSWeapon* WeaponToEquip)
+{
+	// The Server receives the Client's request and executes the real logic.
+	EquipWeapon(WeaponToEquip);
+}
+
+void UFPSCombatComponent::OnRep_OverlappingWeapon(AFPSWeapon* LastOverlappedWeapon)
+{
+	// --- CLIENT LOGIC ---
+	// This function runs automatically on the Client when the packet arrives from the Server.
+
+	// Store the old one before updating
+	AFPSWeapon* OldWeapon = LastOverlappedWeapon;
+
+	// Broadcast BOTH!
+	// Now Blueprints can say: "Hide Widget on OldWeapon, Show Widget on NewWeapon"
+	OnOverlappingWeaponChange.Broadcast(OldWeapon, OverlappingWeapon);
+}
+
+void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
+{
+	// --- CLIENT VISUALS ---
+	// This runs when the variable update arrives from the Server.
+	// The Server knows the gun is attached, but the Client's engine doesn't know WHERE to put it yet.
+	
+	if (!IsValid(EquippedWeapon)) return;
+	
+	// 1. Update Physics/State locally
+	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+	
+	// 2. Attach Visuals (Client Side)
+	// Snap the mesh to the hand socket.
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (OwnerCharacter)
+	{
+		EquippedWeapon->AttachToComponent(
+			OwnerCharacter->GetMesh(),
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+			CharacterWeaponSocket
+			);
+		
+		EquippedWeapon->SetOwner(OwnerCharacter);
+		EquippedWeapon->GetAreaSphere()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		
+		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
+	}
+}
+

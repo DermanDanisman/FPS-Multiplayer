@@ -7,6 +7,9 @@
 #include "GameFramework/Character.h"
 #include "FPSPlayerCharacter.generated.h"
 
+struct FWeaponMovementData;
+class UFPSCombatComponent;
+class AFPSWeapon;
 class UInputAction;
 class UInputMappingContext;
 class USpringArmComponent;
@@ -23,6 +26,12 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	FORCEINLINE UFPSCombatComponent* GetCombatComponent() const { return CombatComponent; }
+	
+	// Called by CombatComponent when a weapon is equipped
+	void UpdateMovementSettings(const FWeaponMovementData& NewData);
 
 protected:
 
@@ -31,18 +40,21 @@ protected:
 	// --- ENHANCED INPUT CONFIGURATION ---
 	
 	// The "Map" of keys. (e.g. WASD -> Move, Mouse -> Look)
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
 
 	// The specific actions
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> MoveAction;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> LookAction;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> JumpAction;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enhanced Input")
+	TObjectPtr<UInputAction> InteractionAction;
 	
 	// A duplicate mesh used ONLY to cast shadows for the local player.
 	// It follows the Main Mesh animations perfectly using Master Pose.
@@ -56,6 +68,9 @@ protected:
 
 	// Called when Mouse moves
 	void Look(const FInputActionValue& Value);
+	
+	// Called when Interaction Key is pressed
+	void Interact(const FInputActionValue& Value);
 
 private:
 	
@@ -64,4 +79,7 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "Camera")
 	TObjectPtr<UCameraComponent> CameraComponent;
+	
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UFPSCombatComponent> CombatComponent;
 };

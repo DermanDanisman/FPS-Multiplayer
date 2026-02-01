@@ -1,6 +1,9 @@
 // © 2025 Heathrow (Derman Can Danisman). All rights reserved.
 
 #include "FPS_Multiplayer/Public/Animation/FPSAnimInstance.h"
+
+#include "Actor/Weapon/FPSWeapon.h"
+#include "Component/FPSCombatComponent.h"
 #include "FPS_Multiplayer/Public/Character/FPSPlayerCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -42,6 +45,7 @@ void UFPSAnimInstance::UpdateReferences()
 		FPSCharacter = Cast<AFPSPlayerCharacter>(PawnOwner);
 		if (FPSCharacter.IsValid())
 		{
+			FPSCharacter->GetCombatComponent()->OnWeaponEquippedDelegate.AddDynamic(this, &ThisClass::OnCharacterWeaponEquipped);
 			MovementComponent = Cast<UCharacterMovementComponent>(FPSCharacter->GetMovementComponent());
 		}
 	}
@@ -152,51 +156,71 @@ void UFPSAnimInstance::CalculateGaitValue()
 void UFPSAnimInstance::CalculatePlayRate()
 {
 	// Stride Warping: Adjusts animation playback speed to prevent foot sliding.
-	// Concept: PlayRate = ActualSpeed / ReferenceAnimationSpeed
 	
-	if (GroundSpeed < 5.f)
+	// 1. Safety Check
+	if (GroundSpeed < 5.f || !FPSCharacter.IsValid())
 	{
 		PlayRate = 1.0f;
 		return;
 	}
 
-	// 1. Determine what the "Reference Speed" should be based on current Gait.
-	// This represents the speed the animation *wants* to move at.
-	float ReferenceAnimSpeed = WalkSpeed;
+	// 3. Calculate Individual Rates (The "Map Range Unclamped" Nodes)
+	// If I am moving 300 units/sec, and Walk Anim is 150:
+	// WalkRate = 300 / 150 = 2.0 (Play double speed)
+	const float WalkRate = GroundSpeed / WalkSpeed;
+	const float RunRate  = GroundSpeed / RunSpeed;
+	const float SprintRate = GroundSpeed / SprintSpeed;
 
-	if (GaitValue >= RunGaitValue) 
+	// 4. Blend Rates based on Gait (The "Map Range Clamped" Node)
+	// This matches the logic: "If Gait is 1.5, give me 50% WalkRate and 50% RunRate"
+	float BlendedPlayRate = 1.0f;
+
+	if (GaitValue <= 1.0f) // Walking
 	{
-		// Between Run and Sprint
-		ReferenceAnimSpeed = FMath::GetMappedRangeValueClamped(
-			FVector2D(RunGaitValue, SprintGaitValue), 
-			FVector2D(RunSpeed, SprintSpeed), 
+		BlendedPlayRate = WalkRate;
+	}
+	else if (GaitValue <= 2.0f) // Blending Walk -> Run
+	{
+		BlendedPlayRate = FMath::GetMappedRangeValueClamped(
+			FVector2D(1.f, 2.f),               // Input Range (Gait)
+			FVector2D(WalkRate, RunRate),      // Output Range (Rates)
 			GaitValue
 		);
 	}
-	else 
+	else // Blending Run -> Sprint
 	{
-		// Between Walk and Run
-		ReferenceAnimSpeed = FMath::GetMappedRangeValueClamped(
-			FVector2D(WalkGaitValue, RunGaitValue), 
-			FVector2D(WalkSpeed, RunSpeed),
+		BlendedPlayRate = FMath::GetMappedRangeValueClamped(
+			FVector2D(2.f, 3.f),               // Input Range (Gait)
+			FVector2D(RunRate, SprintRate),    // Output Range (Rates)
 			GaitValue
 		);
 	}
 
-	// 2. Calculate the ratio
-	PlayRate = GroundSpeed / ReferenceAnimSpeed;
-
-	// 3. Scale Adjustment (Pro Move)
-	// If the character mesh is scaled (e.g. giant or dwarf), the stride length changes.
-	if (FPSCharacter.IsValid())
+	// 5. Scale Adjustment (The "Divide" Node)
+	const float ScaleZ = FPSCharacter->GetActorScale3D().Z;
+	if (ScaleZ > 0.01f) // Avoid divide by zero
 	{
-		const float ScaleZ = FPSCharacter->GetActorScale3D().Z; 
-		if (!FMath::IsNearlyEqual(ScaleZ, 1.0f) && ScaleZ > 0.f)
-		{
-			PlayRate /= ScaleZ;
-		}
+		BlendedPlayRate /= ScaleZ;
 	}
 
-	// 4. Clamp to prevent visual artifacts (super fast legs or freeze-frame legs)
-	PlayRate = FMath::Clamp(PlayRate, 0.5f, 2.0f);
+	// 6. Set Final Result
+	PlayRate = BlendedPlayRate;
+}
+
+void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* EquippedWeapon)
+{
+	if (!EquippedWeapon) return;
+
+	// 1. Update the Enum
+	EquippedWeaponState = EquippedWeapon->GetWeaponState();
+	
+	// 2. GET DATA: Pull the movement settings from the new weapon
+	// (Assuming you added the struct and getter to FPSWeapon.h)
+	const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
+
+	// 3. UPDATE ANIMATION REFS: 
+	// Now CalculatePlayRate will use the correct math for THIS specific gun's animations.
+	WalkSpeed   = WeaponData.AnimWalkRefSpeed;
+	RunSpeed    = WeaponData.AnimRunRefSpeed;
+	SprintSpeed = WeaponData.AnimSprintRefSpeed;
 }

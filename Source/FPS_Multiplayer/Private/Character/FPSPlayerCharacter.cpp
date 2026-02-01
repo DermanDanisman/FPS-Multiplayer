@@ -5,7 +5,9 @@
 
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Actor/Weapon/FPSWeapon.h"
 #include "Camera/CameraComponent.h"
+#include "Component/FPSCombatComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 
@@ -38,6 +40,9 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	CameraComponent->SetupAttachment(SpringArmComponent);
 	CameraComponent->bUsePawnControlRotation = false; // Camera follows the arm
+	
+	CombatComponent = CreateDefaultSubobject<UFPSCombatComponent>("CombatComponent");
+	CombatComponent->SetIsReplicated(true);
 
 	// 2. MOVEMENT SETTINGS
 	// For FPS, we typically want the character to rotate with the camera
@@ -106,6 +111,9 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		// Jump (Spacebar)
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		
+		// Interaction (ex: F Key)
+		EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	}
 }
 
@@ -143,3 +151,23 @@ void AFPSPlayerCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
+void AFPSPlayerCharacter::Interact(const FInputActionValue& Value)
+{
+	// Check if we have a valid weapon to grab
+	AFPSWeapon* WeaponToEquip = CombatComponent->GetOverlappingWeapon();
+	if (!WeaponToEquip) return;
+
+	// NEW WAY (Universal Function):
+	// Works for Server Host OR Client. The Component figures it out.
+	CombatComponent->EquipWeapon(WeaponToEquip);
+}
+
+void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewData)
+{
+	// 1. Update Physical Limits (The Capsule)
+	GetCharacterMovement()->MaxWalkSpeed = NewData.MaxBaseSpeed;
+	GetCharacterMovement()->MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;
+
+	// 2. Update Sprint Speed (If you have a separate Sprint System)
+	// SprintSpeed = NewData.MaxSprintSpeed;
+}

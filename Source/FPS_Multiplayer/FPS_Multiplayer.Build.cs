@@ -19,7 +19,8 @@ public class FPS_Multiplayer : ModuleRules
 			"CommonInput", 
 			"UMG",
 			"Slate",
-			"SlateCore"
+			"SlateCore", 
+			"OnlineMultiplayerSessionsPlugin"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

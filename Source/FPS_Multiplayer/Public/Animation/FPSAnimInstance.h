@@ -9,6 +9,8 @@
 // Forward declarations to reduce compile time dependencies
 class UCharacterMovementComponent;
 class AFPSPlayerCharacter;
+class AFPSWeapon;
+enum class EWeaponState : uint8;
 
 /**
  * Defines the character's facing/movement strategy.
@@ -96,6 +98,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
 	bool bIsAccelerating;
 	
+	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	EWeaponState EquippedWeaponState;
+	
 	// =========================================================================
 	//                        LOCOMOTION CALCULATIONS
 	// =========================================================================
@@ -167,17 +172,17 @@ protected:
 
 	// --- SPEED CONFIGURATION ---
 	// Defines the speed at which the character is considered "Walking" (Gait 1.0)
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Speeds")
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Dynamic Speeds")
 	float WalkSpeed = 150.f;
 	float WalkGaitValue = 1.f;
 
 	// Defines the speed at which the character is considered "Running" (Gait 2.0)
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Speeds")
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Dynamic Speeds")
 	float RunSpeed = 300.f;
 	float RunGaitValue = 2.f;
 	
 	// Defines the speed at which the character is considered "Sprinting" (Gait 3.0)
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Speeds")
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Dynamic Speeds")
 	float SprintSpeed = 600.f;
 	float SprintGaitValue = 3.f;
 	
@@ -189,4 +194,8 @@ private:
 	void CalculateMovementDirectionMode();
 	void CalculateGaitValue();
 	void CalculatePlayRate();
+	
+	// --- DELEGATE CALLBACK FUNCTIONS ---
+	UFUNCTION()
+	void OnCharacterWeaponEquipped(AFPSWeapon* EquippedWeapon);
 };
