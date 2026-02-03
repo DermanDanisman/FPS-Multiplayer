@@ -4,13 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "Structs/CharacterDataContainer.h"
 #include "FPSAnimInstance.generated.h"
 
 // Forward declarations to reduce compile time dependencies
 class UCharacterMovementComponent;
 class AFPSPlayerCharacter;
 class AFPSWeapon;
-enum class EWeaponState : uint8;
 
 /**
  * Defines the character's facing/movement strategy.
@@ -20,15 +20,8 @@ enum class EWeaponState : uint8;
 UENUM(BlueprintType)
 enum class EMovementDirectionMode : uint8
 {
-	Forward  UMETA(DisplayName = "Forward"),
-	Backward UMETA(DisplayName = "Backward")
-};
-
-UENUM(BlueprintType)
-enum class EAnimStateMode : uint8
-{
-	Unarmed  UMETA(DisplayName = "Unarmed"),
-	Armed UMETA(DisplayName = "Armed")
+	EMDM_Forward  UMETA(DisplayName = "Forward"),
+	EMDM_Backward UMETA(DisplayName = "Backward")
 };
 
 /**
@@ -99,7 +92,7 @@ protected:
 	bool bIsAccelerating;
 	
 	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
-	EWeaponState EquippedWeaponState;
+	FCharacterLayerStates LayerStates;
 	
 	// =========================================================================
 	//                        LOCOMOTION CALCULATIONS
@@ -138,7 +131,7 @@ protected:
     
 	// Decides if we use the Forward or Backward BlendSpace.
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | Direction")
-	EMovementDirectionMode MovementDirectionMode = EMovementDirectionMode::Forward;
+	EMovementDirectionMode MovementDirectionMode = EMovementDirectionMode::EMDM_Forward;
 
 	// --- ROTATION HISTORY (For Future Inertia/Stops) ---
 	
@@ -154,6 +147,16 @@ protected:
 	// Difference between Input Rotation and Velocity Rotation
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
 	float MovementInputVelocityDifference;
+	
+	// =========================================================================
+	//                        AIMING & AIM OFFSET CALCULATIONS
+	// =========================================================================
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Aim Offset")
+	FRotator PitchValuePerBone;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Aim Offset")
+	FTransform SightTransform;
 
 	// =========================================================================
 	//                           CONFIGURATION
@@ -169,6 +172,12 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Thresholds")
 	float DirectionThresholdMin = -90.0f;
+	
+	// --- AIM CONFIGURATIONS ---
+	// Higher = Snappier. Lower = Smoother (but "laggier"). 
+	// Start with 15.0f.
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Aiming")
+	float AimInterpSpeed = 15.0f;
 
 	// --- SPEED CONFIGURATION ---
 	// Defines the speed at which the character is considered "Walking" (Gait 1.0)
@@ -194,8 +203,10 @@ private:
 	void CalculateMovementDirectionMode();
 	void CalculateGaitValue();
 	void CalculatePlayRate();
+	void CalculatePitchValuePerBone();
+	void CalculateSightAlignment();
 	
 	// --- DELEGATE CALLBACK FUNCTIONS ---
 	UFUNCTION()
-	void OnCharacterWeaponEquipped(AFPSWeapon* EquippedWeapon);
+	void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
 };

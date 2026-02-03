@@ -3,6 +3,7 @@
 #include "FPS_Multiplayer/Public/Animation/FPSAnimInstance.h"
 
 #include "Actor/Weapon/FPSWeapon.h"
+#include "Camera/CameraComponent.h"
 #include "Component/FPSCombatComponent.h"
 #include "FPS_Multiplayer/Public/Character/FPSPlayerCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -35,6 +36,8 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	CalculateMovementDirectionMode();
 	CalculateGaitValue();
 	CalculatePlayRate();
+	CalculatePitchValuePerBone();
+	CalculateSightAlignment();
 }
 
 void UFPSAnimInstance::UpdateReferences()
@@ -76,6 +79,11 @@ void UFPSAnimInstance::CalculateEssentialData()
 	bHasMovementInput = MovementComponent->GetLastInputVector().SizeSquared() > 0.f;
 	LastMovementInputRotation = UKismetMathLibrary::MakeRotFromX(MovementComponent->GetLastInputVector());
 	MovementInputVelocityDifference = UKismetMathLibrary::NormalizedDeltaRotator(LastMovementInputRotation, LastVelocityRotation).Yaw;
+	
+	// --- SYNC LAYER STATES ---
+	// The AnimInstance simply copies the Authoritative State from the Character.
+	// This ensures that if the Server says "Crouch", the Animation does it.
+	LayerStates = FPSCharacter->GetLayerStates();
 }
 
 void UFPSAnimInstance::CalculateLocomotionDirection()
@@ -110,12 +118,12 @@ void UFPSAnimInstance::CalculateMovementDirectionMode()
 	if (!bInWideRange)
 	{
 		// Definitely moving backwards (e.g. 180 deg)
-		MovementDirectionMode = EMovementDirectionMode::Backward;
+		MovementDirectionMode = EMovementDirectionMode::EMDM_Backward;
 	}
 	else if (bInNarrowRange)
 	{
 		// Definitely moving forwards (e.g. 0 deg)
-		MovementDirectionMode = EMovementDirectionMode::Forward;
+		MovementDirectionMode = EMovementDirectionMode::EMDM_Forward;
 	}
 	// If in between (Grey Zone), keep the previous state.
 }
@@ -207,20 +215,113 @@ void UFPSAnimInstance::CalculatePlayRate()
 	PlayRate = BlendedPlayRate;
 }
 
-void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* EquippedWeapon)
+// Calculate up/down rotation for spine, neck and head bones when looking up/down
+void UFPSAnimInstance::CalculatePitchValuePerBone()
 {
-	if (!EquippedWeapon) return;
-
-	// 1. Update the Enum
-	EquippedWeaponState = EquippedWeapon->GetWeaponState();
+	// 1. SOURCE SELECTION (Network Logic)
+	FRotator TargetRotation;
 	
-	// 2. GET DATA: Pull the movement settings from the new weapon
-	// (Assuming you added the struct and getter to FPSWeapon.h)
-	const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
+	if (FPSCharacter->IsLocallyControlled())
+	{
+		// The control pitch already comes clamped to avoid looking more than 90 deg up or 90 deg down 
+		// Local Input (Instant, Smooth)
+		TargetRotation = FPSCharacter->GetControlRotation();
+	}
+	else
+	{
+		// Replicated Data (Networked)
+		// This reads the compressed 'RemoteViewPitch' that Unreal replicates automatically.
+		// Replicated, compressed byte (might be jittery)
+		TargetRotation = FPSCharacter->GetBaseAimRotation();
+	}
+	
+	// 2. NORMALIZE
+	// GetBaseAimRotation often returns 0-360, while ControlRotation is -90 to 90.
+	// NormalizeAxis forces everything into -180 to 180 range to prevent flipping bugs.
+	FRotator NormalizedTarget = TargetRotation;
+	NormalizedTarget.Pitch = FRotator::NormalizeAxis(TargetRotation.Pitch);
+	
+	// 3. APPLY YOUR MATH (The 180 flip)
+	// We compose the rotation to get the "Look Up/Down" angle relative to the spine's forward.
+	// The control pitch goes from 0 to 90 deg when looking up, and from 360 to 270 when looking down... 
+	// So we rotate it by 180 deg to make it go from 0 to -90 (up) and from 0 to 90 deg (down), ready to be applied to the bones...
+	FRotator AimRotation = UKismetMathLibrary::ComposeRotators(NormalizedTarget, FRotator(180.0f, 0.f, 0.f));
+	
+	// 4. DEFINE THE GOAL
+	// We want the final bone rotation to be 1/8th of the total look angle.
+	// Divide by 8 bones (head, neck_01, neck_02, spine_05, spine_04, spine_03, spine_02 and spine_01)
+	FRotator TargetPitchPerBone = FRotator(0.f, 0.f, AimRotation.Pitch / 8.0f);
+	
+	// 5. INTERPOLATE (Smoothing)
+    // Smoothly transition from Current Value -> Target Value
+    PitchValuePerBone = FMath::RInterpTo(
+        PitchValuePerBone,      // Current
+        TargetPitchPerBone,     // Target
+        GetDeltaSeconds(),      // Time since last frame (UAnimInstance provides this)
+        AimInterpSpeed          // Speed
+    );
+}
 
-	// 3. UPDATE ANIMATION REFS: 
-	// Now CalculatePlayRate will use the correct math for THIS specific gun's animations.
+void UFPSAnimInstance::CalculateSightAlignment()
+{
+	// Add this check at the very top:
+	if (LayerStates.AimState != EAimState::EAS_ADS)
+	{
+		// Reset transform smoothly back to zero if needed, or just return
+		SightTransform = UKismetMathLibrary::TInterpTo(SightTransform, FTransform::Identity, GetDeltaSeconds(), 10.f);
+		return;
+	}
+	
+	if (FPSCharacter->IsLocallyControlled())
+	{
+		// Check if the character and its components are valid
+		if (!FPSCharacter.IsValid() || !FPSCharacter->IsLocallyControlled()) return;
+
+		// Get the Camera (Target)
+		FTransform CameraTransform = FPSCharacter->GetCameraComponent()->GetComponentTransform();
+
+		// Get the Gun Sight (Current Source)
+		// Ensure you check pointers! GetEquippedWeapon() might be null.
+		AFPSWeapon* Weapon = FPSCharacter->GetCombatComponent()->GetEquippedWeapon();
+		if (!Weapon) return;
+
+		FTransform SocketTransform = Weapon->GetWeaponMesh()->GetSocketTransform("GunSightSocket");
+
+		// Calculate the Delta: "How do I get from the Socket TO the Camera?"
+		FTransform RelativeTransform = UKismetMathLibrary::MakeRelativeTransform(CameraTransform, SocketTransform);
+
+		// INTERPOLATION FIX:
+		// 1. Use TInterpTo (Transform Interpolation)
+		// 2. Pass 'SightTransform' (member var) as Current, NOT SocketTransform.
+		SightTransform = UKismetMathLibrary::TInterpTo(
+			SightTransform,     // Current: Where we were last frame
+			CameraTransform,  // Target: Where we want to be
+			GetDeltaSeconds(),  // Delta Time
+			10.f                // Interp Speed
+		);
+	}
+}
+
+void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
+{
+	// 1. Safety Check
+	if (!IsValid(NewWeapon))
+	{
+		// Optional: Reset to defaults if weapon is null
+		return;
+	}
+
+	// 2. GET DATA
+	// We strictly use this event to update MATH CONSTANTS (Stride Warping).
+	const FWeaponMovementData& WeaponData = NewWeapon->GetMovementData();
+
+	// 3. UPDATE ANIMATION CONFIGURATION
 	WalkSpeed   = WeaponData.AnimWalkRefSpeed;
 	RunSpeed    = WeaponData.AnimRunRefSpeed;
 	SprintSpeed = WeaponData.AnimSprintRefSpeed;
+
+	// CRITICAL: DO NOT set LayerStates.OverlayState here!
+	// Why? Because NativeUpdateAnimation() runs every frame and copies the 
+	// authoritative state from the Character. If you set it here, it will 
+	// just get overwritten 1 frame later.
 }

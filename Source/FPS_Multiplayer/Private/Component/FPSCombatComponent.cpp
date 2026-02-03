@@ -99,6 +99,8 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 			if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(GetOwner()))
 			{
 				FPSChar->UpdateMovementSettings(WeaponData);
+				FPSChar->SetOverlayState(WeaponData.OverlayState);
+
 			}
 		}
 		
@@ -151,8 +153,6 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 			);
 		
 		EquippedWeapon->SetOwner(OwnerCharacter);
-		EquippedWeapon->GetAreaSphere()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		
 		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
 	}
 }

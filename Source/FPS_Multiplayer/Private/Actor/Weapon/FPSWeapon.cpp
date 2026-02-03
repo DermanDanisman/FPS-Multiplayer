@@ -5,6 +5,7 @@
 #include "Component/FPSCombatComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Net/UnrealNetwork.h"
 
 AFPSWeapon::AFPSWeapon()
 {
@@ -76,8 +77,16 @@ void AFPSWeapon::BeginPlay()
 	}
 }
 
+void AFPSWeapon::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	// Register the variable for replication
+	DOREPLIFETIME(AFPSWeapon, WeaponState);
+}
+
 void AFPSWeapon::OnAreaSphereOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
-	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+                                     UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	// CASTING: Check if the thing that touched us is actually a Player Character.
 	AFPSPlayerCharacter* FPSPlayerCharacter = Cast<AFPSPlayerCharacter>(OtherActor);
@@ -97,4 +106,44 @@ void AFPSWeapon::OnAreaSphereEndOverlap(UPrimitiveComponent* OverlappedComponent
 	
 	// Tell the character they left the weapon zone.
 	FPSPlayerCharacter->GetCombatComponent()->SetOverlappingWeapon(nullptr);
+}
+
+void AFPSWeapon::SetWeaponState(const EWeaponState NewWeaponState)
+{
+	WeaponState = NewWeaponState;
+	OnRep_WeaponState(); // Force the visual/physics update immediately on Server
+}
+
+void AFPSWeapon::OnRep_WeaponState()
+{
+	// This runs on the Client automatically when the state changes.
+	// We ALSO call this manually on the Server to ensure they match!
+	
+	switch (WeaponState)
+	{
+		case EWeaponState::EWS_Equipped:
+			// 1. Disable Physics (So it doesn't fall out of hand)
+			WeaponMesh->SetSimulatePhysics(false);
+			WeaponMesh->SetEnableGravity(false);
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+			// 2. Disable Pickup Sphere (So we can't trigger overlaps while holding it)
+			AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	            
+			// 3. Hide Widget (Just in case)
+			if (InteractionWidget) InteractionWidget->SetVisibility(false);
+			break;
+
+		case EWeaponState::EWS_Dropped:
+			// 1. Enable Physics (So it falls to the floor)
+			WeaponMesh->SetSimulatePhysics(true);
+			WeaponMesh->SetEnableGravity(true);
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	            
+			// 2. Enable Pickup Sphere
+			AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			AreaSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+			break;
+		default: ;
+	}
 }

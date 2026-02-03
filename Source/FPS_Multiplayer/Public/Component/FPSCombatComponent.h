@@ -36,6 +36,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat Component | Getters")
 	FORCEINLINE AFPSWeapon* GetOverlappingWeapon() { return OverlappingWeapon; }
 	
+	UFUNCTION(BlueprintPure, Category = "Combat Component | Getters")
+	FORCEINLINE AFPSWeapon* GetEquippedWeapon() { return EquippedWeapon; }
+	
 	/**
 	 * Main logic for equipping a weapon.
 	 * Replication handled

@@ -9,7 +9,7 @@
 #include "Camera/CameraComponent.h"
 #include "Component/FPSCombatComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/SpringArmComponent.h"
+#include "Net/UnrealNetwork.h"
 
 
 AFPSPlayerCharacter::AFPSPlayerCharacter()
@@ -32,38 +32,36 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	// 1. CAMERA SETUP (FPS Style)
 	// We usually attach the camera directly to the mesh or a socket for FPS,
 	// but a SpringArm is fine if you want flexibility (e.g., death cam).
-	SpringArmComponent = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArmComponent"));
+	/*SpringArmComponent = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArmComponent"));
 	SpringArmComponent->SetupAttachment(GetMesh(), FName("CameraSocket")); // Ensure this socket exists on your mesh!
 	SpringArmComponent->TargetArmLength = 0.0f; // FPS view usually has 0 length
-	SpringArmComponent->bUsePawnControlRotation = true; // Rotate arm with controller
+	SpringArmComponent->bUsePawnControlRotation = true; // Rotate arm with controller*/
 
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
-	CameraComponent->SetupAttachment(SpringArmComponent);
-	CameraComponent->bUsePawnControlRotation = false; // Camera follows the arm
+	CameraComponent->SetupAttachment(ShadowMesh, FName("CameraSocket"));
+	CameraComponent->bUsePawnControlRotation = true; // Camera follows the arm
+	CameraComponent->bEnableFirstPersonFieldOfView = true;
+	CameraComponent->bEnableFirstPersonScale = true;
 	
 	CombatComponent = CreateDefaultSubobject<UFPSCombatComponent>("CombatComponent");
 	CombatComponent->SetIsReplicated(true);
 
 	// 2. MOVEMENT SETTINGS
 	// For FPS, we typically want the character to rotate with the camera
-	bUseControllerRotationYaw = true; 
+	bUseControllerRotationYaw = true;
+	// Disable standard camera smoothing because our SpringArm/Camera is attached to the Mesh Socket.
+	// We want the Animation to drive the camera movement 100%.
+	GetCharacterMovement()->bCrouchMaintainsBaseLocation = true;
 	GetCharacterMovement()->bOrientRotationToMovement = false; // Strafing behavior
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanWalk = true;
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanJump = true;
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanSwim = true;
 }
 
 void AFPSPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-	
-	// 3. REGISTER INPUT MAPPING
-	// This tells the PlayerController: "I am using the 'DefaultMappingContext' (WASD/Mouse)"
-	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
-	{
-		UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer());
-		if (Subsystem)
-		{
-			Subsystem->AddMappingContext(DefaultMappingContext, 0);
-		}
-	}
 	
 	if (IsLocallyControlled())
 	{
@@ -89,6 +87,13 @@ void AFPSPlayerCharacter::BeginPlay()
 	}
 }
 
+void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	DOREPLIFETIME_CONDITION(ThisClass, LayerStates, COND_None);
+}
+
 void AFPSPlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -109,8 +114,17 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::Look);
 
 		// Jump (Spacebar)
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ThisClass::Jump);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ThisClass::StopJumping);
+		
+		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Triggered, this, &ThisClass::OnCrouchPressed);
+		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ThisClass::OnCrouchReleased);
+		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ThisClass::OnCrouchReleased);
+		
+		// Aim (RMB)
+		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &ThisClass::OnAimPressed);
+		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &ThisClass::OnAimReleased);
+		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Canceled, this, &ThisClass::OnAimReleased);
 		
 		// Interaction (ex: F Key)
 		EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ThisClass::Interact);
@@ -151,6 +165,70 @@ void AFPSPlayerCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
+void AFPSPlayerCharacter::OnCrouchPressed()
+{
+	if (!GetCharacterMovement()->IsCrouching())
+	{
+		if (!GetCharacterMovement()->IsFalling())
+		{
+			Crouch();
+		}
+	}
+}
+
+void AFPSPlayerCharacter::OnCrouchReleased()
+{
+	UnCrouch();
+}
+
+void AFPSPlayerCharacter::OnStartCrouch(float HeightAdjust, float ScaledHeightAdjust)
+{
+	Super::OnStartCrouch(HeightAdjust, ScaledHeightAdjust);
+	
+	// This runs on:
+	// 1. Server (Authority)
+	// 2. Client (immediately via prediction)
+	// 3. Simulated Proxies (when bIsCrouched replicates)
+	LayerStates.Stance = EStance::ES_Crouching;
+}
+
+void AFPSPlayerCharacter::OnEndCrouch(float HeightAdjust, float ScaledHeightAdjust)
+{
+	Super::OnEndCrouch(HeightAdjust, ScaledHeightAdjust);
+	
+	LayerStates.Stance = EStance::ES_Standing;
+}
+
+void AFPSPlayerCharacter::OnAimPressed()
+{
+	SetAimState(EAimState::EAS_ADS);
+}
+
+void AFPSPlayerCharacter::OnAimReleased()
+{
+	SetAimState(EAimState::EAS_None);
+}
+
+void AFPSPlayerCharacter::SetAimState(EAimState NewState)
+{
+	// 1. Prediction: Update locally immediately so it feels responsive
+	LayerStates.AimState = NewState;
+
+	// 2. Replication: Tell the Server
+	if (!HasAuthority())
+	{
+		Server_SetAimState(NewState);
+	}
+}
+
+void AFPSPlayerCharacter::Server_SetAimState_Implementation(EAimState NewState)
+{
+	// Server updates its authoritative copy
+	// This will replicate down to all clients via OnRep_CharacterLayers
+	LayerStates.AimState = NewState;
+}
+
+
 void AFPSPlayerCharacter::Interact(const FInputActionValue& Value)
 {
 	// Check if we have a valid weapon to grab
@@ -170,4 +248,9 @@ void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewD
 
 	// 2. Update Sprint Speed (If you have a separate Sprint System)
 	// SprintSpeed = NewData.MaxSprintSpeed;
+}
+
+void AFPSPlayerCharacter::SetOverlayState(EOverlayState NewState)
+{
+	LayerStates.OverlayState = NewState;
 }

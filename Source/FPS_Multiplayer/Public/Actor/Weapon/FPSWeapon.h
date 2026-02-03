@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Enums/CharacterTypes.h"
 #include "GameFramework/Actor.h"
 #include "FPSWeapon.generated.h"
 
@@ -13,6 +14,8 @@ USTRUCT(BlueprintType)
 struct FWeaponMovementData
 {
 	GENERATED_BODY()
+	
+	EOverlayState OverlayState = EOverlayState::EOS_Rifle;
 
 	// --- PHYSICAL LIMITS (CharacterMovementComponent) ---
 	// How fast the capsule is ALLOWED to move.
@@ -34,6 +37,15 @@ struct FWeaponMovementData
 
 	UPROPERTY(EditDefaultsOnly, Category = "Animation Standards")
 	float AnimSprintRefSpeed = 600.f;
+};
+
+UENUM(BlueprintType)
+enum EWeaponType
+{
+	// We will expand this with the child classes. Like for Melee: knife, sword etc. for Ranged: pistol, rifle etc.
+	
+	EWT_Melee  UMETA(DisplayName = "Melee"),
+	EWR_Ranged UMETA(DisplayName = "Ranged")
 };
 
 /**
@@ -75,7 +87,7 @@ public:
 	FORCEINLINE USphereComponent* GetAreaSphere() const { return AreaSphere; }
 	
 	UFUNCTION(BlueprintCallable, Category = "Setters")
-	FORCEINLINE void SetWeaponState(const EWeaponState NewWeaponState) { WeaponState = NewWeaponState; }
+	void SetWeaponState(const EWeaponState NewWeaponState);
 	
 	UFUNCTION(BlueprintPure, Category = "Getters")
 	FORCEINLINE EWeaponState GetWeaponState() const { return WeaponState; }
@@ -83,10 +95,15 @@ public:
 	// Getter for the Combat Component to read
 	UFUNCTION(BlueprintPure, Category = "Getters")
 	FORCEINLINE FWeaponMovementData GetMovementData() const { return MovementData; }
+	
+	UFUNCTION(BlueprintPure, Category = "Getters")
+	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() { return WeaponMesh; }
 
 protected:
 	
 	virtual void BeginPlay() override;
+	
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 	
 	/* * Overlap functions bound to the AreaSphere.
 	 * NOTE: These functions will ONLY execute on the Server.
@@ -110,8 +127,10 @@ protected:
 		UPrimitiveComponent* OtherComp, 
 		int32 OtherBodyIndex
 		);
-
 	
+	UFUNCTION()
+	virtual void OnRep_WeaponState();
+
 private:
 	
 	/* * Main visual representation of the gun. 
@@ -138,7 +157,7 @@ private:
 	 * Tracks the current state (Initial, Equipped, Dropped).
 	 * VisibleAnywhere allows us to debug the state in the Editor details panel.
 	 */
-	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
+	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_WeaponState, Category = "Weapon Properties")
 	EWeaponState WeaponState;
 	
 	// The configuration for THIS specific weapon

@@ -1,0 +1,54 @@
+// © 2026 Heathrow (Derman Can Danisman). All rights reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "CharacterTypes.generated.h"
+
+// LAYER 1: The Physical Posture
+UENUM(BlueprintType)
+enum class EStance : uint8
+{
+	ES_Standing UMETA(DisplayName = "Standing"),
+	ES_Crouching UMETA(DisplayName = "Crouching"),
+	ES_Prone     UMETA(DisplayName = "Prone") // Future-proofing!
+};
+
+// LAYER 2: The Movement Speed (Gait)
+UENUM(BlueprintType)
+enum class EGait : uint8
+{
+	EG_Idle      UMETA(DisplayName = "Idle"),
+	EG_Walking   UMETA(DisplayName = "Walking"),
+	EG_Running   UMETA(DisplayName = "Running"),
+	EG_Sprinting UMETA(DisplayName = "Sprinting")
+};
+
+// LAYER 3: The Active Action (Overrides everything)
+UENUM(BlueprintType)
+enum class EActionState : uint8
+{
+	EAS_None        UMETA(DisplayName = "None"),
+	EAS_Sliding     UMETA(DisplayName = "Sliding"),
+	EAS_Vaulting    UMETA(DisplayName = "Vaulting"),
+	EAS_WallRunning UMETA(DisplayName = "Wall Running")
+};
+
+// LAYER 4: The "Overlay" (What are we holding?)
+UENUM(BlueprintType)
+enum class EOverlayState : uint8
+{
+	EOS_Unarmed     UMETA(DisplayName = "Unarmed"),
+	EOS_Rifle       UMETA(DisplayName = "Rifle"),
+	EOS_Pistol      UMETA(DisplayName = "Pistol")
+};
+
+// LAYER 5: The Aiming State (How are we targeting?)
+UENUM(BlueprintType)
+enum class EAimState : uint8
+{
+	EAS_None        UMETA(DisplayName = "Hip / None"),
+	EAS_ADS         UMETA(DisplayName = "Aiming Down Sights"),
+	EAS_PointAim    UMETA(DisplayName = "Point Aim"), // Future-proof
+	EAS_Zoomed      UMETA(DisplayName = "Zoomed / Scoped")
+};
