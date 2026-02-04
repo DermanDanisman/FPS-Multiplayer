@@ -80,8 +80,8 @@ protected:
 	
 	// A duplicate mesh used ONLY to cast shadows for the local player.
 	// It follows the Main Mesh animations perfectly using Master Pose.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<USkeletalMeshComponent> ShadowMesh;
+	/*UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<USkeletalMeshComponent> ShadowMesh;*/
 
 	// --- INPUT FUNCTIONS ---
 	

@@ -45,6 +45,12 @@ public:
 	// Called every frame. This is the main update loop.
 	// Runs on Game Thread -> Safe to access Character & MovementComponent.
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	
+	/**
+	 * Calculates the precise hand offsets needed to align the weapon sights with the camera.
+	 * This is an EVENT-BASED calculation (runs only when weapon changes), not per-frame.
+	 */
+	void CalculateHandTransforms();
 
 protected:
 	
@@ -60,7 +66,7 @@ protected:
 	TWeakObjectPtr<UCharacterMovementComponent> MovementComponent;
 	
 	// =========================================================================
-	//                        ESSENTIAL MOVEMENT DATA
+	//                        ANIMATION STATE DATA
 	// =========================================================================
 	
 	// Current velocity vector (World Space)
@@ -91,75 +97,94 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
 	bool bIsAccelerating;
 	
+	// The "Source of Truth" state struct replicated from the Character
 	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
 	FCharacterLayerStates LayerStates;
 	
 	// =========================================================================
-	//                        LOCOMOTION CALCULATIONS
+	//                        LOCOMOTION MATH
 	// =========================================================================
 
-	// The direction relative to the actor rotation (-180 to 180).
-	// 0 = Forward, 90 = Right, -90 = Left, 180 = Backward.
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | Direction")
-	float Direction; 
+	// Direction (-180 to 180) relative to Actor Rotation
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
+	float Direction = 0.f; 
 
-	// Cached version of Direction (synced for now, can be smoothed later).
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | Direction")
+	// Smoothed/Cached direction
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
 	float LocomotionDirection; 
 
-	/**
-	 * Represents the current movement style.
-	 * 0.0 = Idle
-	 * 1.0 = Walk
-	 * 2.0 = Run
-	 * 3.0 = Sprint
-	 */
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | Gait")
+	// 0=Idle, 1=Walk, 2=Run, 3=Sprint (Driven by curve mapping)
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
 	float GaitValue;
 
-	/**
-	 * Stride Warping Multiplier.
-	 * 1.0 = Normal Speed.
-	 * >1.0 = Faster animation (feet move faster).
-	 * <1.0 = Slower animation (feet move slower).
-	 * Used to match animation foot speed to actual capsule movement speed.
-	 */
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | Stride Warping")
+	// Stride Warping: Multiplier for play speed to match capsule speed (Prevents foot sliding)
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
 	float PlayRate = 1.0f;
-	
-	// --- MOVEMENT DIRECTION SWITCHING ---
     
-	// Decides if we use the Forward or Backward BlendSpace.
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | Direction")
+	// Forward vs Backward selection
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
 	EMovementDirectionMode MovementDirectionMode = EMovementDirectionMode::EMDM_Forward;
 
-	// --- ROTATION HISTORY (For Future Inertia/Stops) ---
-	
+	// --- STOP PREDICTION ---
+	// Used to play specific "Plant and Stop" animations based on which way we were moving
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
 	FRotator LastVelocityRotation;
-	
+    
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
 	bool bHasMovementInput;
-	
+    
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
 	FRotator LastMovementInputRotation;
-	
-	// Difference between Input Rotation and Velocity Rotation
+    
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
 	float MovementInputVelocityDifference;
 	
 	// =========================================================================
-	//                        AIMING & AIM OFFSET CALCULATIONS
+	//                        PROCEDURAL AIMING (FABRIK / IK)
 	// =========================================================================
 	
-	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Aim Offset")
+	// Vertical Aim Offset (Pitch) used for Spine bending
+	UPROPERTY(BlueprintReadOnly, Category = "AimOffset")
+	float PitchOffset;
+    
+	// Distributed pitch value (e.g. Total Pitch / 8 bones) for smooth spine curvature
+	UPROPERTY(BlueprintReadOnly, Category = "AimOffset")
 	FRotator PitchValuePerBone;
-	
-	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Aim Offset")
-	FTransform SightTransform;
+    
+	// The Cache: Stores the calculated transform for EVERY sight on the gun.
+	UPROPERTY(BlueprintReadOnly, Category = "Sight Alignment")
+	TArray<FTransform> HandTransforms;
+    
+	// The Active Transform: The specific one we are using RIGHT NOW (driven by CurrentSightIndex)
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Final")
+	FVector HandLocation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Final")
+	FRotator HandRotation;
+    
+	// Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.)
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming | State")
+	int32 CurrentSightIndex = 0;
+    
+	// Transition speeds loaded from Weapon Config
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Final")
+	float TimeToAim;
+    
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Final")
+	float TimeFromAim;
+    
+	// Helper struct for sorting/debugging sights
+	struct FSightMeshData
+	{
+		UMeshComponent* Mesh;
+		int32 SightIndex;
+	};
+    
+	TArray<FSightMeshData> OpticSights;
+	TArray<FSightMeshData> FrontSights;
 
 	// =========================================================================
-	//                           CONFIGURATION
+	//                           CONFIGURATION (Defaults)
 	// =========================================================================
 
 	// --- DIRECTION THRESHOLDS ---
@@ -176,8 +201,15 @@ protected:
 	// --- AIM CONFIGURATIONS ---
 	// Higher = Snappier. Lower = Smoother (but "laggier"). 
 	// Start with 15.0f.
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Aiming")
-	float AimInterpSpeed = 15.0f;
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | AimOffset")
+	float PitchPerBoneInterpSpeed = 15.0f;
+	
+	// --- SKELETON CONFIGURATION ---
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Skeleton")
+	FName HandBoneName = FName("hand_r");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Skeleton")
+	FName HeadBoneName = FName("head");
 
 	// --- SPEED CONFIGURATION ---
 	// Defines the speed at which the character is considered "Walking" (Gait 1.0)
@@ -204,9 +236,9 @@ private:
 	void CalculateGaitValue();
 	void CalculatePlayRate();
 	void CalculatePitchValuePerBone();
-	void CalculateSightAlignment();
+	void CalculateAimOffset();
 	
-	// --- DELEGATE CALLBACK FUNCTIONS ---
+	// Event listener: Fires when the Combat Component successfully equips a new gun
 	UFUNCTION()
 	void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
 };

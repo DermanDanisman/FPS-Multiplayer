@@ -6,17 +6,19 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Actor/Weapon/FPSWeapon.h"
+#include "Animation/FPSAnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Component/FPSCombatComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "UniversalObjectLocators/AnimInstanceLocatorFragment.h"
 
 
 AFPSPlayerCharacter::AFPSPlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	
-	// Create the Shadow Mesh
+	/*// Create the Shadow Mesh
 	ShadowMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ShadowMesh"));
 	ShadowMesh->SetupAttachment(GetMesh()); // Attach to main mesh logic
     
@@ -27,7 +29,7 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
     
 	// Optimization: Disable collision and ticking (it will follow Master Pose)
 	ShadowMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ShadowMesh->SetComponentTickEnabled(false);
+	ShadowMesh->SetComponentTickEnabled(false);*/
 	
 	// 1. CAMERA SETUP (FPS Style)
 	// We usually attach the camera directly to the mesh or a socket for FPS,
@@ -38,7 +40,7 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	SpringArmComponent->bUsePawnControlRotation = true; // Rotate arm with controller*/
 
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
-	CameraComponent->SetupAttachment(ShadowMesh, FName("CameraSocket"));
+	CameraComponent->SetupAttachment(GetMesh(), FName("CameraSocket"));
 	CameraComponent->bUsePawnControlRotation = true; // Camera follows the arm
 	CameraComponent->bEnableFirstPersonFieldOfView = true;
 	CameraComponent->bEnableFirstPersonScale = true;
@@ -63,7 +65,7 @@ void AFPSPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	if (IsLocallyControlled())
+	/*if (IsLocallyControlled())
 	{
 		// 1. Setup Main Mesh (Visuals) - HIDE HEAD
 		GetMesh()->HideBoneByName(FName("head"), EPhysBodyOp::PBO_None);
@@ -84,7 +86,7 @@ void AFPSPlayerCharacter::BeginPlay()
 		// Remote players just see the main mesh normally
 		ShadowMesh->SetHiddenInGame(true);
 		ShadowMesh->SetCastShadow(false); 
-	}
+	}*/
 }
 
 void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -117,6 +119,7 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ThisClass::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ThisClass::StopJumping);
 		
+		// Crouch (Left-CTRL)
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Triggered, this, &ThisClass::OnCrouchPressed);
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ThisClass::OnCrouchReleased);
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ThisClass::OnCrouchReleased);
@@ -202,6 +205,14 @@ void AFPSPlayerCharacter::OnEndCrouch(float HeightAdjust, float ScaledHeightAdju
 void AFPSPlayerCharacter::OnAimPressed()
 {
 	SetAimState(EAimState::EAS_ADS);
+	if (IsLocallyControlled())
+	{
+		UFPSAnimInstance* AnimInstance = Cast<UFPSAnimInstance>(GetMesh()->GetAnimInstance());
+		if (AnimInstance)
+		{
+			AnimInstance->CalculateHandTransforms();
+		}
+	}
 }
 
 void AFPSPlayerCharacter::OnAimReleased()
@@ -213,7 +224,7 @@ void AFPSPlayerCharacter::SetAimState(EAimState NewState)
 {
 	// 1. Prediction: Update locally immediately so it feels responsive
 	LayerStates.AimState = NewState;
-
+	
 	// 2. Replication: Tell the Server
 	if (!HasAuthority())
 	{

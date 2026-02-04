@@ -4,6 +4,7 @@
 #include "Component/FPSCombatComponent.h"
 
 #include "Actor/Weapon/FPSWeapon.h"
+#include "Animation/FPSAnimInstance.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Components/SphereComponent.h"
 #include "Components/WidgetComponent.h"
@@ -58,6 +59,8 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 {
 	if (!IsValid(WeaponToEquip)) return;
 	
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	
 	// --- STEP 1: AUTOMATIC NETWORK ROUTING ---
 	// If we are a Client, we cannot set variables. 
 	// So, we automatically call the Server RPC and return.
@@ -68,7 +71,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 		return; // Our job on the Client is done. The Server takes over.
 	}
 	
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	// --- SERVER LOGIC START ---
 	if (OwnerCharacter)
 	{
 		// 1. Update State (Server Side)
@@ -81,7 +84,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 			OwnerCharacter->GetMesh(),
 			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
 			CharacterWeaponSocket
-			);
+		);
 		
 		// 3. Set Owner
 		// Crucial for "IsLocallyControlled" checks and lag compensation later.
@@ -90,6 +93,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 		// 4. Cleanup
 		EquippedWeapon->GetAreaSphere()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		
+		// 5. Stat Updates
 		if (WeaponToEquip)
 		{
 			// 1. Get the Data Packet
@@ -98,12 +102,14 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 			// 2. Apply Physics to Character
 			if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(GetOwner()))
 			{
+				// Server applies speed limits (Anti-Cheat / Logic)
 				FPSChar->UpdateMovementSettings(WeaponData);
 				FPSChar->SetOverlayState(WeaponData.OverlayState);
 
 			}
 		}
 		
+		// Server broadcasts delegate locally (for logic running on server)
 		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
 	}
 	
@@ -130,15 +136,17 @@ void UFPSCombatComponent::OnRep_OverlappingWeapon(AFPSWeapon* LastOverlappedWeap
 	OnOverlappingWeaponChange.Broadcast(OldWeapon, OverlappingWeapon);
 }
 
+// --- REPLICATION NOTIFICATION (Client Side) ---
 void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 {
 	// --- CLIENT VISUALS ---
 	// This runs when the variable update arrives from the Server.
 	// The Server knows the gun is attached, but the Client's engine doesn't know WHERE to put it yet.
+	// This is where we handle the JITTER FIX.
 	
 	if (!IsValid(EquippedWeapon)) return;
 	
-	// 1. Update Physics/State locally
+	// 1. Update Weapon Physics locally (Client Visuals)
 	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
 	
 	// 2. Attach Visuals (Client Side)
@@ -150,9 +158,25 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 			OwnerCharacter->GetMesh(),
 			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
 			CharacterWeaponSocket
-			);
+		);
 		
 		EquippedWeapon->SetOwner(OwnerCharacter);
+		
+		// --- 3. JITTER FIX (Prediction) ---
+		// We must apply the MaxWalkSpeed update on the Client immediately.
+		// If we don't, the Client tries to move at 600 speed, Server forces 300, causing rubber-banding.
+		if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(OwnerCharacter))
+		{
+			const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
+            
+			// Sync Movement Speed
+			FPSChar->UpdateMovementSettings(WeaponData); 
+            
+			// Sync Animation Pose
+			FPSChar->SetOverlayState(WeaponData.OverlayState); 
+		}
+        
+		// 4. Notify AnimInstance to run CalculateHandTransforms!
 		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
 	}
 }

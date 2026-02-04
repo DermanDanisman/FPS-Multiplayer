@@ -98,6 +98,18 @@ public:
 	
 	UFUNCTION(BlueprintPure, Category = "Getters")
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() { return WeaponMesh; }
+	
+	UFUNCTION(BlueprintPure, Category = "Getters")
+	FORCEINLINE float GetDistanceFromCamera() const { return DistanceFromCamera; }
+	
+	FORCEINLINE float GetTimeToAim() const { return TimeToAim; }
+	FORCEINLINE float GetTimeFromAim() const { return TimeFromAim; }
+	FORCEINLINE FName GetOpticSocketName() const { return OpticSocketName; }
+	FORCEINLINE FName GetFrontSightSocketName() const { return FrontSightSocketName; }
+	FORCEINLINE FName GetRearSightSocketName() const { return RearSightSocketName; }
+	FORCEINLINE FString GetOpticTagPrefix() const { return OpticTagPrefix; }
+	FORCEINLINE FString GetFrontSightTagPrefix() const { return FrontSightTagPrefix; }
+	FORCEINLINE FString GetRearSightTagPrefix() const { return RearSightTagPrefix; }
 
 protected:
 	
@@ -163,4 +175,33 @@ private:
 	// The configuration for THIS specific weapon
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config")
 	FWeaponMovementData MovementData;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Aim")
+	float DistanceFromCamera;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Aim")
+	float TimeToAim;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Aim")
+	float TimeFromAim;
+	
+	// --- SIGHT CONFIGURATION ---
+    
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	FName OpticSocketName = FName("OpticAimpoint");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	FName FrontSightSocketName = FName("FrontAimpoint");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	FName RearSightSocketName = FName("RearAimpoint");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	FString OpticTagPrefix = TEXT("OpticSight");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	FString FrontSightTagPrefix = TEXT("FrontSight");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	FString RearSightTagPrefix = TEXT("RearSight");
 };
