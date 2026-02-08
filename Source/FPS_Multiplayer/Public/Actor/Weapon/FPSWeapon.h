@@ -3,51 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Enums/FPSCharacterTypes.h"
+#include "Data/DataAsset/FPSWeaponData.h"
 #include "GameFramework/Actor.h"
 #include "Interface/FPSInteractableInterface.h"
 #include "FPSWeapon.generated.h"
 
 class UWidgetComponent;
 class USphereComponent;
-
-USTRUCT(BlueprintType)
-struct FWeaponMovementData
-{
-	GENERATED_BODY()
-	
-	EOverlayState OverlayState = EOverlayState::EOS_Rifle;
-
-	// --- PHYSICAL LIMITS (CharacterMovementComponent) ---
-	// How fast the capsule is ALLOWED to move.
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Movement Limits")
-	float MaxBaseSpeed = 600.f; // Standard "Run" speed
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Movement Limits")
-	float MaxCrouchSpeed = 300.f;
-
-	// --- ANIMATION REFERENCES (Stride Warping Math) ---
-	// How fast the character moves in the ANIMATION file.
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Animation Standards")
-	float AnimWalkRefSpeed = 150.f;
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Animation Standards")
-	float AnimRunRefSpeed = 300.f;
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Animation Standards")
-	float AnimSprintRefSpeed = 600.f;
-};
-
-UENUM(BlueprintType)
-enum EWeaponType
-{
-	// We will expand this with the child classes. Like for Melee: knife, sword etc. for Ranged: pistol, rifle etc.
-	
-	EWT_Melee  UMETA(DisplayName = "Melee"),
-	EWR_Ranged UMETA(DisplayName = "Ranged")
-};
 
 /**
  * @enum EWeaponState
@@ -87,31 +49,38 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() { return WeaponMesh; }
 	
-	// Getters for private components (Best practice for encapsulation)
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE UWidgetComponent* GetInteractionWidget() const { return InteractionWidget; }
 	
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE EWeaponState GetWeaponState() const { return WeaponState; }
 	
-	// Getter for the Combat Component to read
-	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE FWeaponMovementData GetMovementData() const { return MovementData; }
+	UFUNCTION(BlueprintPure, Category="Weapon|Getters")
+	FORCEINLINE UFPSWeaponData* GetWeaponData() const { return WeaponData; }
 	
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE float GetDistanceFromCamera() const { return DistanceFromCamera; }
+	FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); } // Return the data if valid, otherwise return a default-constructed struct
 	
-	// [NEW] Getter
-	FORCEINLINE FTransform GetHipFireOffset() const { return HipFireOffset; }
-	FORCEINLINE FVector GetLeftHandEffectorLocation() const { return LeftHandEffectorLocation; }
-	FORCEINLINE float GetTimeToAim() const { return TimeToAim; }
-	FORCEINLINE float GetTimeFromAim() const { return TimeFromAim; }
-	FORCEINLINE FName GetOpticSocketName() const { return OpticSocketName; }
-	FORCEINLINE FName GetFrontSightSocketName() const { return FrontSightSocketName; }
-	FORCEINLINE FName GetRearSightSocketName() const { return RearSightSocketName; }
-	FORCEINLINE FString GetOpticTagPrefix() const { return OpticTagPrefix; }
-	FORCEINLINE FString GetFrontSightTagPrefix() const { return FrontSightTagPrefix; }
-	FORCEINLINE FString GetRearSightTagPrefix() const { return RearSightTagPrefix; }
+	FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
+	
+	FORCEINLINE float GetFireDelay() const { return WeaponData ? WeaponData->FireDelay : 0.1f; }
+	FORCEINLINE bool IsAutomatic() const { return WeaponData ? WeaponData->bIsAutomatic : false; }
+	FORCEINLINE int32 GetMaxClipAmmo() const { return WeaponData ? WeaponData->MaxClipAmmo : 30; }
+	FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
+	FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
+	
+	FORCEINLINE FTransform GetHipFireOffset() const { return WeaponData ? WeaponData->HipFireOffset : FTransform().Identity; }
+	FORCEINLINE FVector GetLeftHandEffectorLocation() const { return WeaponData ? WeaponData->LeftHandEffectorLocation : FVector::ZeroVector; }
+	FORCEINLINE float GetTimeToAim() const { return WeaponData ? WeaponData->TimeToAim : 0.5f; }
+	FORCEINLINE float GetTimeFromAim() const { return WeaponData ? WeaponData->TimeFromAim : 0.2f; }
+	FORCEINLINE float GetDistanceFromCamera() const { return WeaponData ? WeaponData->DistanceFromCamera : 0.f; }
+	
+	FORCEINLINE FName GetOpticSocketName() const { return WeaponData ? WeaponData->OpticSocketName : FName(); }
+	FORCEINLINE FName GetFrontSightSocketName() const { return WeaponData ? WeaponData->FrontSightSocketName : FName(); }
+	FORCEINLINE FName GetRearSightSocketName() const { return WeaponData ? WeaponData->RearSightSocketName : FName(); }
+	FORCEINLINE FString GetOpticTagPrefix() const { return WeaponData ? WeaponData->OpticTagPrefix : FString(); }
+	FORCEINLINE FString GetFrontSightTagPrefix() const { return WeaponData ? WeaponData->FrontSightTagPrefix : FString(); }
+	FORCEINLINE FString GetRearSightTagPrefix() const { return WeaponData ? WeaponData->RearSightTagPrefix : FString(); }
 	
 	// =========================================================================
 	//                        SETTER FUNCTIONS
@@ -153,51 +122,18 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Weapon|Properties")
 	TObjectPtr<UWidgetComponent> InteractionWidget;
 	
+	// Single source of truth for configuration
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Properties")
+	TObjectPtr<UFPSWeaponData> WeaponData;
+	
 	/*
 	 * Tracks the current state (Initial, Equipped, Dropped).
 	 * VisibleAnywhere allows us to debug the state in the Editor details panel.
 	 */
-	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_WeaponState, Category = "Weapon|Properties")
+	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_WeaponState, Category = "Weapon|State")
 	EWeaponState WeaponState;
 	
-	// The configuration for THIS specific weapon
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config")
-	FWeaponMovementData MovementData;
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Aim")
-	float DistanceFromCamera;
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Aim")
-	float TimeToAim;
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Aim")
-	float TimeFromAim;
-	
-	// [NEW] The target location for the weapon when NOT aiming (Hip Fire).
-	// This is an offset relative to the Camera (Head).
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Positioning")
-	FTransform HipFireOffset;
-	
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Positioning")
-	FVector LeftHandEffectorLocation;
-	
-	// --- SIGHT CONFIGURATION ---
-    
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
-	FName OpticSocketName = FName("OpticAimpoint");
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
-	FName FrontSightSocketName = FName("FrontAimpoint");
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
-	FName RearSightSocketName = FName("RearAimpoint");
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
-	FString OpticTagPrefix = TEXT("OpticSight");
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
-	FString FrontSightTagPrefix = TEXT("FrontSight");
-
-	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
-	FString RearSightTagPrefix = TEXT("RearSight");
+	// This MUST remain on the Actor because it changes when you shoot!
+	UPROPERTY(Replicated, EditAnywhere, Category = "Weapon|State")
+	int32 CurrentClipAmmo;
 };

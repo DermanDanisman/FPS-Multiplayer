@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Enums/FPSCharacterTypes.h"
+#include "Data/Enums/FPSCharacterTypes.h"
 #include "FPSCharacterDataContainer.generated.h"
 
 USTRUCT(BlueprintType)

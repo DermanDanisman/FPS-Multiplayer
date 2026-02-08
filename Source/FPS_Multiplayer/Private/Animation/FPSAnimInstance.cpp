@@ -387,6 +387,13 @@ void UFPSAnimInstance::CalculateHandTransforms()
             
             // This is the simplified version assuming Front/Rear are retrievable via the cached mesh/sockets.
             FVector FrontLocation = Sight.Mesh->GetSocketLocation(Sight.SocketNameA); // Front
+        	
+        	// Get Rear Transform
+        	// CHECK: Is the rear sight on a separate mesh, or the main mesh?
+        	UMeshComponent* RearMeshToUse = Sight.RearMesh.IsValid() ? Sight.RearMesh.Get() : Sight.Mesh.Get();
+            
+        	if (!RearMeshToUse) continue; // Safety
+        	
             FTransform RearTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameB, RTS_World); // Rear
             
             FVector RearLocation = RearTransform.GetLocation();
@@ -461,11 +468,34 @@ void UFPSAnimInstance::CalculateHandTransforms()
     // This MUST run every frame. TInterpTo moves 'Current' towards 'Target' 
     // by a tiny percentage based on DeltaTime.
     
+	// START NEW LOGIC -----------------------------------------
+	float CurrentSpeed = 15.0f; // Default safety fallback
+	
+	// Are we aiming? Use "Time To Aim"
+	if (LayerStates.AimState == EAimState::EAS_ADS || LayerStates.AimState == EAimState::EAS_Zoomed)
+	{
+		// Safety: Prevent divide by zero
+		if (TimeToAim > 0.0f)
+		{
+			// Example: 1.0 / 0.2s = Speed 5.0
+			CurrentSpeed = 1.0f / TimeToAim; 
+		}
+	}
+	// Are we stopping aim? Use "Time From Aim"
+	else
+	{
+		if (TimeFromAim > 0.0f)
+		{
+			CurrentSpeed = 1.0f / TimeFromAim;
+		}
+	}
+	// END NEW LOGIC -------------------------------------------
+	
     CurrentHandTransform = UKismetMathLibrary::TInterpTo(
        CurrentHandTransform, 
        DesiredTarget, 
        GetDeltaSeconds(), 
-       AimInterpSpeed
+       CurrentSpeed
     );
 
     // =========================================================
@@ -496,12 +526,13 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
     TArray<UMeshComponent*> WeaponMeshes;
     NewWeapon->GetComponents<UMeshComponent>(WeaponMeshes);
 
-    const FName OpticSocket = NewWeapon->GetOpticSocketName();
-    const FName FrontSocket = NewWeapon->GetFrontSightSocketName();
-    const FName RearSocket  = NewWeapon->GetRearSightSocketName();
-    const FString OpticPrefix = NewWeapon->GetOpticTagPrefix();
-    const FString FrontPrefix = NewWeapon->GetFrontSightTagPrefix();
-    const FString RearPrefix  = NewWeapon->GetRearSightTagPrefix();
+	const FName OpticSocket = NewWeapon->GetOpticSocketName();
+	const FName FrontSocket = NewWeapon->GetFrontSightSocketName();
+	const FName RearSocket  = NewWeapon->GetRearSightSocketName(); // "RearAimpoint"
+    
+	const FString OpticPrefix = NewWeapon->GetOpticTagPrefix();
+	const FString FrontPrefix = NewWeapon->GetFrontSightTagPrefix();
+	const FString RearPrefix  = NewWeapon->GetRearSightTagPrefix(); // "RearSight"
 
     // Heavy Loop: Runs ONCE per weapon equip.
     for (UMeshComponent* Mesh : WeaponMeshes)
@@ -517,29 +548,52 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
             {
                 int32 Index = FCString::Atoi(*IndexStr);
 
-                // Check Optic
-                if (SightType.Equals(OpticPrefix, ESearchCase::IgnoreCase) && Mesh->DoesSocketExist(OpticSocket))
-                {
-                    FCachedSightData NewData;
-                    NewData.bIsOptic = true;
-                    NewData.SightIndex = Index;
-                    NewData.Mesh = Mesh;
-                    NewData.SocketNameA = OpticSocket;
-                    CachedSights.Add(NewData);
-                }
-                // Check Iron Sight
+            	// --- TYPE A: RED DOT / SCOPE ---
+            	if (SightType.Equals(OpticPrefix, ESearchCase::IgnoreCase) && Mesh->DoesSocketExist(OpticSocket))
+            	{
+            		FCachedSightData NewData;
+            		NewData.bIsOptic = true;
+            		NewData.SightIndex = Index;
+            		NewData.Mesh = Mesh;
+            		NewData.SocketNameA = OpticSocket;
+            		CachedSights.Add(NewData);
+            	}
+            	// --- TYPE B: IRON SIGHTS ---
+            	// Entry Point: We MUST find the Front Sight tag first.
                 else if (SightType.Equals(FrontPrefix, ESearchCase::IgnoreCase) && Mesh->DoesSocketExist(FrontSocket))
                 {
                     // For Iron Sights, we need to find the rear sight component too. 
                     // (You can perform the Rear Sight Search logic here and store it in NewData.SocketNameB/Mesh)
                     // For brevity, I'm assuming you implement the Rear Search here similarly to your old code.
                     
-                    FCachedSightData NewData;
-                    NewData.bIsOptic = false;
-                    NewData.SightIndex = Index;
-                    NewData.Mesh = Mesh;
-                    NewData.SocketNameA = FrontSocket;
-                    NewData.SocketNameB = RearSocket; // You'd need to find the specific Rear Component too
+                	FCachedSightData NewData;
+                	NewData.bIsOptic = false;
+                	NewData.SightIndex = Index;
+                	NewData.Mesh = Mesh; // Front Sight is here
+                	NewData.SocketNameA = FrontSocket;
+                	// SMART CHECK: Is the Rear Sight on THIS SAME MESH?
+                	if (Mesh->DoesSocketExist(RearSocket))
+                	{
+                		// YES! Standard Rifle. Both sockets on one mesh.
+                		NewData.SocketNameB = RearSocket;
+                		NewData.RearMesh = nullptr; // nullptr means "Use Main Mesh"
+                	}
+                	else
+                	{
+                		// NO! The rear sight must be a separate attachment.
+                		// Let's hunt for it.
+                		FString TargetRearTag = RearPrefix + TEXT("_") + IndexStr; // e.g., "RearSight_0"
+                        
+                		for (UMeshComponent* PotentialRear : WeaponMeshes)
+                		{
+                			if (PotentialRear->ComponentHasTag(FName(*TargetRearTag)) && PotentialRear->DoesSocketExist(RearSocket))
+                			{
+                				NewData.SocketNameB = RearSocket;
+                				NewData.RearMesh = PotentialRear; // Found it!
+                				break;
+                			}
+                		}
+                	}
                     CachedSights.Add(NewData);
                 }
             }

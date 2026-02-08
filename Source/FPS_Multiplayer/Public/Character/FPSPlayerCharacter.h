@@ -4,9 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "InputActionValue.h"
-#include "Enums/FPSCharacterTypes.h"
+#include "Data/Enums/FPSCharacterTypes.h"
+#include "Data/Structs/FPSCharacterDataContainer.h"
 #include "GameFramework/Character.h"
-#include "Structs/FPSCharacterDataContainer.h"
 #include "FPSPlayerCharacter.generated.h"
 
 class UFPSInteractionComponent;

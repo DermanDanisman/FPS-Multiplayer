@@ -61,7 +61,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 		EquippedWeapon->AttachToComponent(
 			OwnerCharacter->GetMesh(),
 			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-			CharacterWeaponSocket
+			EquippedWeapon->GetWeaponHandSocketName()
 		);
 		
 		// 3. Set Owner
@@ -115,7 +115,7 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 		EquippedWeapon->AttachToComponent(
 			OwnerCharacter->GetMesh(),
 			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-			CharacterWeaponSocket
+			EquippedWeapon->GetWeaponHandSocketName()
 		);
 		
 		EquippedWeapon->SetOwner(OwnerCharacter);

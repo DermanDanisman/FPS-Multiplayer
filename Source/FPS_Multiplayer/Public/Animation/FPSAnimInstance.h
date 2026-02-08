@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
-#include "Structs/FPSCharacterDataContainer.h"
+#include "Data/Structs/FPSCharacterDataContainer.h"
 #include "FPSAnimInstance.generated.h"
 
 // Forward declarations to reduce compile time dependencies
@@ -187,10 +187,6 @@ protected:
 	// Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.)
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|State")
 	int32 CurrentSightIndex = 0;
-
-	// [NEW] How fast to blend between Hip and ADS (Controls "Snappiness")
-	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Aiming|Feel")
-	float AimInterpSpeed = 15.0f;
 	
 	// [NEW] The target transform we want to reach (Either Hip or ADS)
 	FTransform TargetHandTransform;
@@ -208,9 +204,15 @@ protected:
 		TWeakObjectPtr<UMeshComponent> Mesh; 
     
 		// The Socket Names we found (so we don't check tags)
-		FName SocketNameA; // Optic or Front
-		FName SocketNameB; // Rear (if Iron Sight)
+		// Primary Socket (Optic or Front Post)
+		FName SocketNameA;
+		// Secondary Socket (Rear Notch) - Used for Iron Sights
+		FName SocketNameB;
     
+		// [NEW] If the rear sight is on a DIFFERENT component (Modular), store it here.
+		// If this is nullptr, we assume SocketNameB is on the MAIN Mesh.
+		TWeakObjectPtr<UMeshComponent> RearMesh;
+		
 		// Helper to sort array by Index
 		bool operator<(const FCachedSightData& Other) const
 		{

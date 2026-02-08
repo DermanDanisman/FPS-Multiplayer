@@ -2,10 +2,8 @@
 
 #include "Actor/Weapon/FPSWeapon.h"
 
-#include "Animation/FPSAnimInstance.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCombatComponent.h"
-#include "Components/SphereComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Net/UnrealNetwork.h"
 
