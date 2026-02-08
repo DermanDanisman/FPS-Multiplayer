@@ -3,8 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Enums/CharacterTypes.h"
+#include "Enums/FPSCharacterTypes.h"
 #include "GameFramework/Actor.h"
+#include "Interface/FPSInteractableInterface.h"
 #include "FPSWeapon.generated.h"
 
 class UWidgetComponent;
@@ -20,22 +21,22 @@ struct FWeaponMovementData
 	// --- PHYSICAL LIMITS (CharacterMovementComponent) ---
 	// How fast the capsule is ALLOWED to move.
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Movement Limits")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Movement Limits")
 	float MaxBaseSpeed = 600.f; // Standard "Run" speed
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Movement Limits")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Movement Limits")
 	float MaxCrouchSpeed = 300.f;
 
 	// --- ANIMATION REFERENCES (Stride Warping Math) ---
 	// How fast the character moves in the ANIMATION file.
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Animation Standards")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Animation Standards")
 	float AnimWalkRefSpeed = 150.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Animation Standards")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Animation Standards")
 	float AnimRunRefSpeed = 300.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Animation Standards")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Animation Standards")
 	float AnimSprintRefSpeed = 600.f;
 };
 
@@ -70,8 +71,8 @@ enum class EWeaponState : uint8
 	EWS_MAX UMETA(DisplayName = "DefaultMAX")
 };
 
-UCLASS()
-class FPS_MULTIPLAYER_API AFPSWeapon : public AActor
+UCLASS(PrioritizeCategories = "Weapon")
+class FPS_MULTIPLAYER_API AFPSWeapon : public AActor, public IFPSInteractableInterface
 {
 	GENERATED_BODY()
 
@@ -79,29 +80,30 @@ public:
 	
 	AFPSWeapon();
 	
+	// =========================================================================
+	//                        GETTER FUNCTIONS
+	// =========================================================================
+	
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
+	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() { return WeaponMesh; }
+	
 	// Getters for private components (Best practice for encapsulation)
-	UFUNCTION(BlueprintPure, Category = "Getters")
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE UWidgetComponent* GetInteractionWidget() const { return InteractionWidget; }
 	
-	UFUNCTION(BlueprintPure, Category = "Getters")
-	FORCEINLINE USphereComponent* GetAreaSphere() const { return AreaSphere; }
-	
-	UFUNCTION(BlueprintCallable, Category = "Setters")
-	void SetWeaponState(const EWeaponState NewWeaponState);
-	
-	UFUNCTION(BlueprintPure, Category = "Getters")
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE EWeaponState GetWeaponState() const { return WeaponState; }
 	
 	// Getter for the Combat Component to read
-	UFUNCTION(BlueprintPure, Category = "Getters")
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE FWeaponMovementData GetMovementData() const { return MovementData; }
 	
-	UFUNCTION(BlueprintPure, Category = "Getters")
-	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() { return WeaponMesh; }
-	
-	UFUNCTION(BlueprintPure, Category = "Getters")
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE float GetDistanceFromCamera() const { return DistanceFromCamera; }
 	
+	// [NEW] Getter
+	FORCEINLINE FTransform GetHipFireOffset() const { return HipFireOffset; }
+	FORCEINLINE FVector GetLeftHandEffectorLocation() const { return LeftHandEffectorLocation; }
 	FORCEINLINE float GetTimeToAim() const { return TimeToAim; }
 	FORCEINLINE float GetTimeFromAim() const { return TimeFromAim; }
 	FORCEINLINE FName GetOpticSocketName() const { return OpticSocketName; }
@@ -110,35 +112,27 @@ public:
 	FORCEINLINE FString GetOpticTagPrefix() const { return OpticTagPrefix; }
 	FORCEINLINE FString GetFrontSightTagPrefix() const { return FrontSightTagPrefix; }
 	FORCEINLINE FString GetRearSightTagPrefix() const { return RearSightTagPrefix; }
+	
+	// =========================================================================
+	//                        SETTER FUNCTIONS
+	// =========================================================================
+	
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Setters")
+	void SetWeaponState(const EWeaponState NewWeaponState);
+	
+	// =========================================================================
+	//                        IFPSInteractableInterface FUNCTIONS
+	// =========================================================================
+	
+	virtual void Interact_Implementation(APawn* InstigatorPawn) override;
+	virtual void OnFocusGained_Implementation(APawn* InstigatorPawn) override;
+	virtual void OnFocusLost_Implementation(APawn* InstigatorPawn) override;
 
 protected:
 	
 	virtual void BeginPlay() override;
 	
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
-	
-	/* * Overlap functions bound to the AreaSphere.
-	 * NOTE: These functions will ONLY execute on the Server.
-	 * Why? Because in BeginPlay, we bind them inside a 'HasAuthority()' check.
-	 * This prevents Clients from spoofing overlaps or cheating.
-	 */ 
-	UFUNCTION()
-	virtual void OnAreaSphereOverlap(
-		UPrimitiveComponent* OverlappedComponent, 
-		AActor* OtherActor, 
-		UPrimitiveComponent* OtherComp, 
-		int32 OtherBodyIndex, 
-		bool bFromSweep, 
-		const FHitResult& SweepResult
-		);
-	
-	UFUNCTION()
-	virtual void OnAreaSphereEndOverlap(
-		UPrimitiveComponent* OverlappedComponent, 
-		AActor* OtherActor, 
-		UPrimitiveComponent* OtherComp, 
-		int32 OtherBodyIndex
-		);
 	
 	UFUNCTION()
 	virtual void OnRep_WeaponState();
@@ -148,60 +142,62 @@ private:
 	/* * Main visual representation of the gun. 
 	 * Uses SkeletalMesh instead of StaticMesh because weapons need animations (reloading, bolt action).
 	 */
-	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
+	UPROPERTY(VisibleAnywhere, Category = "Weapon|Properties")
 	TObjectPtr<USkeletalMeshComponent> WeaponMesh;
-	
-	/* * The "Trigger Zone" for picking up the weapon.
-	 * In Multiplayer, we keep this disabled on Clients and Enabled on Server.
-	 */
-	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
-	TObjectPtr<USphereComponent> AreaSphere;
 	
 	/*
 	 * The 3D UI that appears above the gun ("Press E to Pickup").
 	 * By default, visibility is FALSE.
 	 * The Character class controls this visibility via Replication, not the Weapon itself.
 	 */
-	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
+	UPROPERTY(VisibleAnywhere, Category = "Weapon|Properties")
 	TObjectPtr<UWidgetComponent> InteractionWidget;
 	
 	/*
 	 * Tracks the current state (Initial, Equipped, Dropped).
 	 * VisibleAnywhere allows us to debug the state in the Editor details panel.
 	 */
-	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_WeaponState, Category = "Weapon Properties")
+	UPROPERTY(VisibleAnywhere, ReplicatedUsing = OnRep_WeaponState, Category = "Weapon|Properties")
 	EWeaponState WeaponState;
 	
 	// The configuration for THIS specific weapon
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config")
 	FWeaponMovementData MovementData;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Aim")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Aim")
 	float DistanceFromCamera;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Aim")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Aim")
 	float TimeToAim;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Aim")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Aim")
 	float TimeFromAim;
+	
+	// [NEW] The target location for the weapon when NOT aiming (Hip Fire).
+	// This is an offset relative to the Camera (Head).
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Positioning")
+	FTransform HipFireOffset;
+	
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Positioning")
+	FVector LeftHandEffectorLocation;
 	
 	// --- SIGHT CONFIGURATION ---
     
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
 	FName OpticSocketName = FName("OpticAimpoint");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
 	FName FrontSightSocketName = FName("FrontAimpoint");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
 	FName RearSightSocketName = FName("RearAimpoint");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
 	FString OpticTagPrefix = TEXT("OpticSight");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
 	FString FrontSightTagPrefix = TEXT("FrontSight");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon Config | Sights")
+	UPROPERTY(EditAnywhere, Category = "Weapon|Config|Sights")
 	FString RearSightTagPrefix = TEXT("RearSight");
 };

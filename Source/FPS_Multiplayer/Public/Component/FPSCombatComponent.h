@@ -10,9 +10,8 @@ class AFPSPlayerCharacter;
 class AFPSWeapon;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWeaponEquippedDelegate, AFPSWeapon*, NewWeapon);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnOverlappingWeaponChangeDelegate, AFPSWeapon*, OldWeapon, AFPSWeapon*, NewWeapon);
 
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), PrioritizeCategories="CombatComponent")
 class FPS_MULTIPLAYER_API UFPSCombatComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -22,28 +21,17 @@ public:
 	UFPSCombatComponent();
 	friend AFPSPlayerCharacter;
 	
-	UPROPERTY(BlueprintAssignable, Category = "Combat Component | Delegates")
+	UPROPERTY(BlueprintAssignable, Category = "CombatComponent|Delegates")
 	FOnWeaponEquippedDelegate OnWeaponEquippedDelegate;
 	
-	UPROPERTY(BlueprintAssignable, Category = "Combat Component | Delegates")
-	FOnOverlappingWeaponChangeDelegate OnOverlappingWeaponChange;
-	
-	// Setter for the Server to update the variable.
-	// This function handles the visual update for the SERVER player (Host).
-	UFUNCTION(BlueprintCallable, Category = "Combat Component | Setters")
-	void SetOverlappingWeapon(AFPSWeapon* NewOverlappingWeapon);
-	
-	UFUNCTION(BlueprintPure, Category = "Combat Component | Getters")
-	FORCEINLINE AFPSWeapon* GetOverlappingWeapon() { return OverlappingWeapon; }
-	
-	UFUNCTION(BlueprintPure, Category = "Combat Component | Getters")
+	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
 	FORCEINLINE AFPSWeapon* GetEquippedWeapon() { return EquippedWeapon; }
 	
 	/**
 	 * Main logic for equipping a weapon.
 	 * Replication handled
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Combat Component")
+	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
 	void EquipWeapon(AFPSWeapon* WeaponToEquip);
 
 protected:
@@ -66,25 +54,7 @@ protected:
 	UFUNCTION()
 	void OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon);
 	
-	/*
-	 * RepNotify for OverlappingWeapon.
-	 * @param LastWeapon - Unreal automatically passes the OLD value of the variable before the update.
-	 * We use LastWeapon to turn OFF the widget on the gun we just walked away from.
-	 */
-	UFUNCTION()
-	void OnRep_OverlappingWeapon(AFPSWeapon* LastOverlappedWeapon);
-	
 private:
-	
-	// --- REPLICATED VARIABLES ---
-
-	/* * [UI STATE]
-	 * Tracks the weapon currently under the player's feet.
-	 * Replication: OwnerOnly (Bandwidth optimization).
-	 * Purpose: Only the local player needs to see the "Press E" prompt.
-	 */
-	UPROPERTY(ReplicatedUsing = OnRep_OverlappingWeapon)
-	TObjectPtr<AFPSWeapon> OverlappingWeapon;
 	
 	/* * [GAMEPLAY STATE]
 	 * Tracks the weapon currently in the player's hands.
@@ -94,6 +64,6 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
 	TObjectPtr<AFPSWeapon> EquippedWeapon;
 	
-	UPROPERTY(EditAnywhere, Category = "Combat Component")
+	UPROPERTY(EditAnywhere, Category = "CombatComponent")
 	FName CharacterWeaponSocket = "WeaponSocket";
 };

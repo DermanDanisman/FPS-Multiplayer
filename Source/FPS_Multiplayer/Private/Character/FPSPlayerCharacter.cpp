@@ -9,9 +9,9 @@
 #include "Animation/FPSAnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Component/FPSCombatComponent.h"
+#include "Component/FPSInteractionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
-#include "UniversalObjectLocators/AnimInstanceLocatorFragment.h"
 
 
 AFPSPlayerCharacter::AFPSPlayerCharacter()
@@ -47,6 +47,8 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	
 	CombatComponent = CreateDefaultSubobject<UFPSCombatComponent>("CombatComponent");
 	CombatComponent->SetIsReplicated(true);
+	
+	InteractionComponent = CreateDefaultSubobject<UFPSInteractionComponent>("InteractionComponent");
 
 	// 2. MOVEMENT SETTINGS
 	// For FPS, we typically want the character to rotate with the camera
@@ -124,13 +126,18 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ThisClass::OnCrouchReleased);
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ThisClass::OnCrouchReleased);
 		
+		// Sprint (Left-Shift)
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Triggered, this, &ThisClass::OnSprintPressed);
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &ThisClass::OnSprintReleased);
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &ThisClass::OnSprintReleased);
+		
 		// Aim (RMB)
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &ThisClass::OnAimPressed);
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &ThisClass::OnAimReleased);
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Canceled, this, &ThisClass::OnAimReleased);
 		
 		// Interaction (ex: F Key)
-		EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ThisClass::Interact);
+		EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ThisClass::OnInteractedPressed);
 	}
 }
 
@@ -184,6 +191,36 @@ void AFPSPlayerCharacter::OnCrouchReleased()
 	UnCrouch();
 }
 
+void AFPSPlayerCharacter::OnSprintPressed()
+{
+	// Block sprint if crouching (optional design choice)
+	if (LayerStates.Stance == EStance::ES_Crouching) 
+	{
+		UnCrouch(); // Or return; if you want crouch to block sprint
+	}
+
+	// Sprint-Out: If we are aiming, stop aiming to allow sprint
+	if (LayerStates.AimState == EAimState::EAS_ADS)
+	{
+		SetAimState(EAimState::EAS_None);
+	}
+
+	// 1. Update Speed Locally (Prediction)
+	GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+
+	// 2. Update State
+	SetGaitState(EGait::EG_Sprinting);
+}
+
+void AFPSPlayerCharacter::OnSprintReleased()
+{
+	// 1. Restore Speed Locally
+	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+
+	// 2. Update State
+	SetGaitState(EGait::EG_Running); // Or EG_Walking, depending on your default
+}
+
 void AFPSPlayerCharacter::OnStartCrouch(float HeightAdjust, float ScaledHeightAdjust)
 {
 	Super::OnStartCrouch(HeightAdjust, ScaledHeightAdjust);
@@ -204,19 +241,15 @@ void AFPSPlayerCharacter::OnEndCrouch(float HeightAdjust, float ScaledHeightAdju
 
 void AFPSPlayerCharacter::OnAimPressed()
 {
+	if (!IsValid(CombatComponent->GetEquippedWeapon())) return;
+	
 	SetAimState(EAimState::EAS_ADS);
-	if (IsLocallyControlled())
-	{
-		UFPSAnimInstance* AnimInstance = Cast<UFPSAnimInstance>(GetMesh()->GetAnimInstance());
-		if (AnimInstance)
-		{
-			AnimInstance->CalculateHandTransforms();
-		}
-	}
 }
 
 void AFPSPlayerCharacter::OnAimReleased()
 {
+	if (!IsValid(CombatComponent->GetEquippedWeapon())) return;
+	
 	SetAimState(EAimState::EAS_None);
 }
 
@@ -240,25 +273,58 @@ void AFPSPlayerCharacter::Server_SetAimState_Implementation(EAimState NewState)
 }
 
 
-void AFPSPlayerCharacter::Interact(const FInputActionValue& Value)
+void AFPSPlayerCharacter::OnInteractedPressed(const FInputActionValue& Value)
 {
-	// Check if we have a valid weapon to grab
-	AFPSWeapon* WeaponToEquip = CombatComponent->GetOverlappingWeapon();
-	if (!WeaponToEquip) return;
+	if (InteractionComponent)
+	{
+		InteractionComponent->PrimaryInteract();
+	}
+}
 
-	// NEW WAY (Universal Function):
-	// Works for Server Host OR Client. The Component figures it out.
-	CombatComponent->EquipWeapon(WeaponToEquip);
+void AFPSPlayerCharacter::SetGaitState(EGait NewState)
+{
+	// 1. Prediction: Update locally immediately
+	LayerStates.Gait = NewState;
+
+	// 2. Replication: Tell the Server
+	if (!HasAuthority())
+	{
+		Server_SetGaitState(NewState);
+	}
+}
+
+void AFPSPlayerCharacter::Server_SetGaitState_Implementation(EGait NewState)
+{
+	// Server updates authoritative copy
+	LayerStates.Gait = NewState;
+    
+	// Server must also update the physical movement speed to prevent rubber-banding
+	if (NewState == EGait::EG_Sprinting)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+	}
+	else
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+	}
 }
 
 void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewData)
 {
-	// 1. Update Physical Limits (The Capsule)
-	GetCharacterMovement()->MaxWalkSpeed = NewData.MaxBaseSpeed;
+	// 1. Cache the values so we can swap back and forth
+	BaseWalkSpeed = NewData.MaxBaseSpeed;
+	SprintSpeed = NewData.AnimSprintRefSpeed; // Assumes this exists in your struct
 	GetCharacterMovement()->MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;
 
-	// 2. Update Sprint Speed (If you have a separate Sprint System)
-	// SprintSpeed = NewData.MaxSprintSpeed;
+	// 2. Apply the correct speed based on current state
+	if (LayerStates.Gait == EGait::EG_Sprinting)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+	}
+	else
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+	}
 }
 
 void AFPSPlayerCharacter::SetOverlayState(EOverlayState NewState)

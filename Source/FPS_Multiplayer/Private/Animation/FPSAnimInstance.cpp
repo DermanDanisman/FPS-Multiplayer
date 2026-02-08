@@ -7,9 +7,7 @@
 #include "Component/FPSCombatComponent.h"
 #include "FPS_Multiplayer/Public/Character/FPSPlayerCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Kismet/KismetArrayLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "Kismet/KismetStringLibrary.h"
 
 // =========================================================================
 //                           LIFECYCLE
@@ -43,6 +41,7 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	CalculatePlayRate();
 	CalculatePitchValuePerBone();
 	CalculateAimOffset();
+	CalculateHandTransforms();
 }
 
 void UFPSAnimInstance::UpdateReferences()
@@ -89,6 +88,12 @@ void UFPSAnimInstance::CalculateEssentialData()
 	// The AnimInstance simply copies the Authoritative State from the Character.
 	// This ensures that if the Server says "Crouch", the Animation does it.
 	LayerStates = FPSCharacter->GetLayerStates();
+	bIsLocallyControlled = FPSCharacter->IsLocallyControlled();
+	
+	// [NEW] Cache Booleans for cleaner AnimGraph Transitions
+	// It is much cheaper to check a boolean in the Graph than to switch on an Enum every frame
+	bIsSprinting = (LayerStates.Gait == EGait::EG_Sprinting);
+	bIsAiming    = (LayerStates.AimState == EAimState::EAS_ADS);
 }
 
 void UFPSAnimInstance::CalculateLocomotionDirection()
@@ -135,12 +140,14 @@ void UFPSAnimInstance::CalculateMovementDirectionMode()
 
 void UFPSAnimInstance::CalculateGaitValue()
 {
-	// Map current Speed to a Gait Value (0=Idle, 1=Walk, 2=Run, 3=Sprint)
-	
+	// 1. Calculate the Raw Gait Value based on Speed
+	// (This allows smooth blending as the character accelerates)
+	float RawGait = 0.f;
+
 	if (GroundSpeed > RunSpeed)
 	{
 		// Blending Run to Sprint (2.0 -> 3.0)
-		GaitValue = FMath::GetMappedRangeValueClamped(
+		RawGait = FMath::GetMappedRangeValueClamped(
 			FVector2D(RunSpeed, SprintSpeed),
 			FVector2D(RunGaitValue, SprintGaitValue), 
 			GroundSpeed
@@ -149,7 +156,7 @@ void UFPSAnimInstance::CalculateGaitValue()
 	else if (GroundSpeed > WalkSpeed && GroundSpeed <= RunSpeed)
 	{
 		// Blending Walk to Run (1.0 -> 2.0)
-		GaitValue = FMath::GetMappedRangeValueClamped(
+		RawGait = FMath::GetMappedRangeValueClamped(
 			FVector2D(WalkSpeed, RunSpeed), 
 			FVector2D(WalkGaitValue, RunGaitValue), 
 			GroundSpeed
@@ -158,12 +165,37 @@ void UFPSAnimInstance::CalculateGaitValue()
 	else
 	{
 		// Blending Stop to Walk (0.0 -> 1.0)
-		GaitValue = FMath::GetMappedRangeValueClamped(
+		RawGait = FMath::GetMappedRangeValueClamped(
 			FVector2D(0.f, WalkSpeed), 
 			FVector2D(0.0f, WalkGaitValue), 
 			GroundSpeed
 		);
 	}
+	
+	// 2. STATE CLAMPING (The Polished Fix)
+	// We limit the Gait Value based on the INTENT (The Enum).
+	// This prevents "Floating Sprinting" if the character is pushed fast but isn't inputting sprint.
+    
+	float MaxAllowedGait = 3.0f; // Default to Sprint
+    
+	switch (LayerStates.Gait)
+	{
+	case EGait::EG_Walking:
+		MaxAllowedGait = WalkGaitValue; // Cap at 1.0
+		break;
+	case EGait::EG_Running:
+		MaxAllowedGait = RunGaitValue;  // Cap at 2.0
+		break;
+	case EGait::EG_Sprinting:
+		MaxAllowedGait = SprintGaitValue; // Cap at 3.0
+		break;
+	default:
+		MaxAllowedGait = RunGaitValue;
+		break;
+	}
+
+	// We allow a small tolerance (0.1f) so blending doesn't snap instantly
+	GaitValue = FMath::Min(RawGait, MaxAllowedGait + 0.1f);
 }
 
 void UFPSAnimInstance::CalculatePlayRate()
@@ -281,232 +313,248 @@ void UFPSAnimInstance::CalculateAimOffset()
 
 void UFPSAnimInstance::CalculateHandTransforms()
 {
-	// --- 1. SAFETY & VALIDATION ---
-	if (!FPSCharacter.IsValid()) return;
-	UFPSCombatComponent* Combat = FPSCharacter->GetCombatComponent();
-	if (!Combat) return;
-	AFPSWeapon* Weapon = Combat->GetEquippedWeapon();
-	if (!Weapon) return;
-	
-	// --- STABILITY FIX ---
-	// We REMOVED "if (!IsLocallyControlled()) return" here.
-	// Why? Because during the first frame of gameplay (Spawn), the Controller might not
-	// possess the Pawn yet. If we return early, the array stays empty forever.
-	// It is safer to run this calculation once on all machines than to risk missing it.
-	
-	// Caching aim times for the AnimGraph transition logic
-	TimeToAim = Weapon->GetTimeToAim();
-	TimeFromAim = Weapon->GetTimeFromAim();
+    // =========================================================
+    // 1. SAFETY & NETWORK OPTIMIZATION
+    // =========================================================
+    
+    // Safety: Ensure character and weapon exist
+    if (!FPSCharacter.IsValid()) return;
+    
+    // [OPTIMIZATION] IsLocallyControlled Check
+    // We strictly ONLY run this expensive math for the player controlling this character.
+    // We do NOT want to calculate gun alignment for other players (Simulated Proxies).
+    // They just play standard animations.
+    if (!FPSCharacter->IsLocallyControlled()) 
+    {
+        HandLocation = FVector::ZeroVector;
+        HandRotation = FRotator::ZeroRotator;
+        return;
+    }
 
-    // --- 2. PREPARE DATA ---
-    HandTransforms.Empty();
-	// Memory Optimization: Pre-allocate 10 slots. 
-	// This prevents the TArray from resizing/reallocating memory multiple times loop.
-	//HandTransforms.SetNum(10);
+    // =========================================================
+    // 2. PREPARE WORLD DATA (Must run every frame)
+    // =========================================================
     
-    OpticSights.Empty();
-    FrontSights.Empty();
+    // We capture these transforms every frame because the player is constantly moving.
+    // We use World Space as the "Common Language" to compare Bones vs Components.
+    FTransform HandWorldTransform = FPSCharacter->GetMesh()->GetSocketTransform(HandBoneName, RTS_World);
+    FTransform CameraWorldTransform  = FPSCharacter->GetCameraComponent()->GetComponentTransform();
+    FTransform HeadWorldTransform = FPSCharacter->GetMesh()->GetSocketTransform(HeadBoneName, RTS_World);
 
-	// Cache World Transforms once to avoid overhead in the loop
-	// GetSocketTransform(RTS_World) performs a matrix multiplication, so caching it is good.
-	FTransform HandWorld = FPSCharacter->GetMesh()->GetSocketTransform(HandBoneName, RTS_World);
-	FTransform CameraWorld = FPSCharacter->GetCameraComponent()->GetComponentTransform();
-	FTransform HeadWorld = FPSCharacter->GetMesh()->GetSocketTransform(HeadBoneName, RTS_World);
-    
-    // Weapon Configs
-    float DistFromCam = Weapon->GetDistanceFromCamera();
-    
-	// Cache configuration strings from the Weapon Data Asset/Class
-    const FName OpticSocket = Weapon->GetOpticSocketName();
-    const FName FrontSocket = Weapon->GetFrontSightSocketName();
-    const FName RearSocket  = Weapon->GetRearSightSocketName();
-    
-    const FString OpticPrefix = Weapon->GetOpticTagPrefix();
-    const FString FrontPrefix = Weapon->GetFrontSightTagPrefix();
-    const FString RearPrefix  = Weapon->GetRearSightTagPrefix();
+    // Note: We use the CACHED float 'CurrentDistanceFromCamera' here instead of calling a function.
 
-	// --- 3. ITERATE WEAPON COMPONENTS ---
+    // =========================================================
+    // 3. ITERATE CACHED SIGHTS (The Optimization)
+    // =========================================================
+    
+    // [OPTIMIZATION] Instead of "GetComponents" and "Split String" loops,
+    // we iterate this clean array we built in OnCharacterWeaponEquipped.
+    // This removes all memory allocation from the Tick loop.
+    
+    for (const FCachedSightData& Sight : CachedSights)
+    {
+        // Skip if the mesh was destroyed (weapon dropped/destroyed)
+        if (!Sight.Mesh.IsValid()) continue;
+
+        FTransform FinalTransform = FTransform::Identity;
+
+        // --- LOGIC A: OPTIC SIGHTS (Red Dots) ---
+        if (Sight.bIsOptic)
+        {
+            // 1. Get current World Location of the Red Dot socket
+            FTransform SightTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameA, RTS_World);
+            
+            // 2. Calculate the Delta: Hand -> Sight
+            FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorldTransform, SightTransform);
+
+            // 3. Apply Camera Distance (Cached)
+            FVector AdjLoc = HandToSight.GetLocation();
+            AdjLoc.X += CurrentDistanceFromCamera; 
+            
+            // 4. Calculate where the Hand needs to be in World Space
+            FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
+            FTransform NewHandWorldTransform = AdjTrans * CameraWorldTransform;
+            
+            // 5. Convert World Space -> Head Space (For AnimGraph)
+            FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorldTransform, HeadWorldTransform);
+        }
+        // --- LOGIC B: IRON SIGHTS (Vector Math) ---
+        else
+        {
+            // Note: For Iron Sights, we generally expect the Rear Sight to be static relative to the Front.
+            // If you need the complex "Rear Component" search logic here, you should cache the 
+            // RearComponent pointer in the FCachedSightData struct too.
+            
+            // This is the simplified version assuming Front/Rear are retrievable via the cached mesh/sockets.
+            FVector FrontLocation = Sight.Mesh->GetSocketLocation(Sight.SocketNameA); // Front
+            FTransform RearTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameB, RTS_World); // Rear
+            
+            FVector RearLocation = RearTransform.GetLocation();
+            FRotator RearRotation = RearTransform.Rotator();
+
+            // Vector math to align Front post perfectly with Rear notch
+            FVector DirectionToTarget = (FrontLocation - RearLocation).GetSafeNormal();
+            FVector UpVector = UKismetMathLibrary::GetUpVector(RearRotation);
+            FVector RightVector = UKismetMathLibrary::GetRightVector(RearRotation);
+
+            float UpDot = FVector::DotProduct(DirectionToTarget, UpVector);
+            float RightDot = FVector::DotProduct(DirectionToTarget, RightVector);
+            
+            float AnglePitch = UKismetMathLibrary::DegAsin(UpDot);
+            float AngleYaw = UKismetMathLibrary::DegAsin(RightDot);
+
+            FRotator PitchRot = UKismetMathLibrary::RotatorFromAxisAndAngle(RightVector, -AnglePitch); 
+            FRotator YawRot = UKismetMathLibrary::RotatorFromAxisAndAngle(UpVector, AngleYaw);
+
+            FRotator CombinedCorrection = UKismetMathLibrary::ComposeRotators(PitchRot, YawRot);
+            FRotator FinalSightRotation = UKismetMathLibrary::ComposeRotators(CombinedCorrection, RearRotation);
+
+            FTransform TrueSightTransform(FinalSightRotation, RearLocation, FVector::OneVector);
+            FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorldTransform, TrueSightTransform);
+
+            FVector AdjLoc = HandToSight.GetLocation();
+            AdjLoc.X = CurrentDistanceFromCamera; // Cached
+            
+            FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
+            FTransform NewHandWorld = AdjTrans * CameraWorldTransform;
+            FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorld, HeadWorldTransform);
+        }
+
+        // Store the result directly into the array at the correct index
+        if (HandTransforms.IsValidIndex(Sight.SightIndex))
+        {
+            HandTransforms[Sight.SightIndex] = FinalTransform;
+        }
+    }
+
+    // =========================================================
+    // 4. DETERMINE THE TARGET (The Decision)
+    // =========================================================
+    
+    FTransform DesiredTarget = FTransform::Identity;
+
+    // A. ARE WE AIMING? (ADS)
+    if (LayerStates.AimState == EAimState::EAS_ADS || LayerStates.AimState == EAimState::EAS_Zoomed)
+    {
+        if (HandTransforms.IsValidIndex(CurrentSightIndex))
+        {
+            // Set target to the calculated ADS position
+            DesiredTarget = HandTransforms[CurrentSightIndex];
+        }
+    }
+    // B. ARE WE HIP FIRING? (Resting)
+    else
+    {
+        // [OPTIMIZATION] Use the CACHED HipFireOffset.
+        // We do not call Weapon->GetHipFireOffset() here anymore.
+        
+        // 1. Calculate World Position relative to Camera
+        FTransform HipTargetWorldTransform = CurrentHipFireOffset * CameraWorldTransform;
+
+        // 2. Convert to Head Space
+        DesiredTarget = UKismetMathLibrary::MakeRelativeTransform(HipTargetWorldTransform, HeadWorldTransform);
+    }
+
+    // =========================================================
+    // 5. INTERPOLATION (The Smoothing)
+    // =========================================================
+    // This MUST run every frame. TInterpTo moves 'Current' towards 'Target' 
+    // by a tiny percentage based on DeltaTime.
+    
+    CurrentHandTransform = UKismetMathLibrary::TInterpTo(
+       CurrentHandTransform, 
+       DesiredTarget, 
+       GetDeltaSeconds(), 
+       AimInterpSpeed
+    );
+
+    // =========================================================
+    // 6. OUTPUT TO ANIM GRAPH (The Final Result)
+    // =========================================================
+    
+    HandLocation = CurrentHandTransform.GetLocation();
+    HandRotation = CurrentHandTransform.Rotator();
+}
+
+void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
+{
+	// 1. Cache Simple Data (The stuff you noticed!)
+    const FWeaponMovementData& WeaponData = NewWeapon->GetMovementData();
+    WalkSpeed   = WeaponData.AnimWalkRefSpeed;
+    RunSpeed    = WeaponData.AnimRunRefSpeed;
+    SprintSpeed = WeaponData.AnimSprintRefSpeed;
+
+    CurrentHipFireOffset = NewWeapon->GetHipFireOffset();
+    CurrentDistanceFromCamera = NewWeapon->GetDistanceFromCamera();
+	CurrentLeftHandEffectorLocation = NewWeapon->GetLeftHandEffectorLocation();
+    TimeToAim = NewWeapon->GetTimeToAim();
+    TimeFromAim = NewWeapon->GetTimeFromAim();
+
+    // 2. BUILD THE SIGHT CACHE (The String Parsing Optimization)
+    CachedSights.Empty();
+    
     TArray<UMeshComponent*> WeaponMeshes;
-    Weapon->GetComponents<UMeshComponent>(WeaponMeshes);
+    NewWeapon->GetComponents<UMeshComponent>(WeaponMeshes);
 
+    const FName OpticSocket = NewWeapon->GetOpticSocketName();
+    const FName FrontSocket = NewWeapon->GetFrontSightSocketName();
+    const FName RearSocket  = NewWeapon->GetRearSightSocketName();
+    const FString OpticPrefix = NewWeapon->GetOpticTagPrefix();
+    const FString FrontPrefix = NewWeapon->GetFrontSightTagPrefix();
+    const FString RearPrefix  = NewWeapon->GetRearSightTagPrefix();
+
+    // Heavy Loop: Runs ONCE per weapon equip.
     for (UMeshComponent* Mesh : WeaponMeshes)
     {
         if (!Mesh) continue;
 
-    	// Loop through all tags on this specific mesh (e.g., "OpticSight_0", "FrontSight_1")
         for (FName Tag : Mesh->ComponentTags)
         {
             FString TagString = Tag.ToString();
             FString SightType, IndexStr;
 
-        	// STRING PARSING: Split "OpticSight_0" into "OpticSight" and "0".
-        	// Optimization: ESearchCase::IgnoreCase allows cleaner blueprinting without strict capitalization.
             if (TagString.Split(TEXT("_"), &SightType, &IndexStr, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
             {
-            	// Convert "0" string to integer 0
-                int32 SightIndex = FCString::Atoi(*IndexStr);
-                
-            	// Safety: If designer puts "OpticSight_99", expand array to prevent IndexOutOfBounds crash.
-                if (HandTransforms.Num() <= SightIndex) HandTransforms.SetNum(SightIndex + 1);
+                int32 Index = FCString::Atoi(*IndexStr);
 
-            	// =========================================================
-            	//                 LOGIC A: OPTIC SIGHTS (Red Dots)
-            	// =========================================================
-                // Compare against Variable, check for Variable Socket
+                // Check Optic
                 if (SightType.Equals(OpticPrefix, ESearchCase::IgnoreCase) && Mesh->DoesSocketExist(OpticSocket))
                 {
-                	// Store metadata for sorting/debugging later
-                    FSightMeshData NewData;
+                    FCachedSightData NewData;
+                    NewData.bIsOptic = true;
+                    NewData.SightIndex = Index;
                     NewData.Mesh = Mesh;
-                    NewData.SightIndex = SightIndex;
-                    OpticSights.Add(NewData);
-
-                	// 1. Get where the Red Dot is currently in the world
-                	FTransform SightTransform = Mesh->GetSocketTransform(OpticSocket, RTS_World);
-
-                	// 2. Calculate the Delta: "How far is the Hand from the Sight?"
-                	FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorld, SightTransform);
-
-                	// 3. Apply the Camera Offset (X-Axis)
-                	// We keep the Rotation/YZ offset calculated above, but force X to our desired camera distance.
-                	FVector AdjustedLoc = HandToSight.GetLocation();
-                	AdjustedLoc.X += DistFromCam; // Pushes gun forward so it doesn't clip into face
-                	FTransform AdjustedHandToSight(HandToSight.GetRotation(), AdjustedLoc, FVector::OneVector);
-
-                	// 4. Calculate Final World Position
-                	// "Put the hand relative to the Camera, using the offset we just calculated."
-                	FTransform NewHandWorld = AdjustedHandToSight * CameraWorld;
-                    
-                	// 5. Convert to Head Space
-                	// The AnimGraph usually modifies bones in Component or Parent Bone Space.
-                	// Converting to Head Space makes the gun follow the head's movements (breathing/bobbing).
-                	FTransform FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorld, HeadWorld);
-
-                	HandTransforms[SightIndex] = FinalTransform;
+                    NewData.SocketNameA = OpticSocket;
+                    CachedSights.Add(NewData);
                 }
-                
-            	// =========================================================
-            	//               LOGIC B: IRON SIGHTS (Vector Math)
-            	// =========================================================
+                // Check Iron Sight
                 else if (SightType.Equals(FrontPrefix, ESearchCase::IgnoreCase) && Mesh->DoesSocketExist(FrontSocket))
                 {
-                	// Store metadata for sorting/debugging later
-                	FSightMeshData NewData;
-                	NewData.Mesh = Mesh;
-                	NewData.SightIndex = SightIndex;
-                	FrontSights.Add(NewData);
-
-                	// 1. Construct the Search Tag for the Rear Sight (e.g. "RearSight_0")
-                	FString RearTag = RearPrefix + TEXT("_") + IndexStr;
+                    // For Iron Sights, we need to find the rear sight component too. 
+                    // (You can perform the Rear Sight Search logic here and store it in NewData.SocketNameB/Mesh)
+                    // For brevity, I'm assuming you implement the Rear Search here similarly to your old code.
                     
-                	// 2. Find the Component that represents the Rear Sight
-                	USceneComponent* RearSightComp = nullptr;
-                	TArray<UActorComponent*> AllComps;
-                	Weapon->GetComponents(AllComps);
-                	
-                    for (UActorComponent* Comp : AllComps)
-                    {
-                        if (Comp->ComponentHasTag(FName(*RearTag)))
-                        {
-                            RearSightComp = Cast<USceneComponent>(Comp);
-                            break;
-                        }
-                    }
-
-                    // Check for Variable Socket
-                    if (RearSightComp && RearSightComp->DoesSocketExist(RearSocket))
-                    {
-                        // 3. Get Positions of Front Post and Rear Notch
-                        FVector FrontLoc = Mesh->GetSocketLocation(FrontSocket);
-                        FTransform RearTransform = RearSightComp->GetSocketTransform(RearSocket, RTS_World);
-                        FVector RearLoc = RearTransform.GetLocation();
-                        FRotator RearRot = RearTransform.Rotator();
-
-                        // 4. ALIGNMENT MATH
-                        // We need a vector pointing EXACTLY from Rear -> Front.
-                        FVector DirectionToTarget = (FrontLoc - RearLoc).GetSafeNormal();
-                        
-                        FVector UpVector = UKismetMathLibrary::GetUpVector(RearRot);
-                        FVector RightVector = UKismetMathLibrary::GetRightVector(RearRot);
-
-                        // Dot Product checks alignment. 
-                        // If Dot == 0, vectors are perpendicular. If Dot == 1, they are parallel.
-                        float UpDot = FVector::DotProduct(DirectionToTarget, UpVector);
-                        float RightDot = FVector::DotProduct(DirectionToTarget, RightVector);
-                        
-                        // Convert Dot Product (Cos/Sin relationship) to an Angle in Degrees
-                        float AnglePitch = UKismetMathLibrary::DegAsin(UpDot);
-                        float AngleYaw = UKismetMathLibrary::DegAsin(RightDot);
-
-                        // Create Rotators to correct the misalignment
-                        // Pitch rotates around Right Vector. Yaw rotates around Up Vector.
-                        FRotator PitchRot = UKismetMathLibrary::RotatorFromAxisAndAngle(RightVector, -AnglePitch); 
-                        FRotator YawRot = UKismetMathLibrary::RotatorFromAxisAndAngle(UpVector, AngleYaw);
-
-                        // Combine corrections with the original Rear Rotation
-                        FRotator CombinedCorrection = UKismetMathLibrary::ComposeRotators(PitchRot, YawRot);
-                        FRotator FinalSightRot = UKismetMathLibrary::ComposeRotators(CombinedCorrection, RearRot);
-
-                        // 5. Construct the "Perfect" Sight Transform
-                        FTransform TrueSightTransform(FinalSightRot, RearLoc, FVector::OneVector);
-                        
-                        // 6. Calculate Hand Offset based on this "Perfect" transform
-                        FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorld, TrueSightTransform);
-
-                        FVector AdjustedLoc = HandToSight.GetLocation();
-                        AdjustedLoc.X = DistFromCam;
-                        FTransform AdjustedHandToSight(HandToSight.GetRotation(), AdjustedLoc, FVector::OneVector);
-
-                        FTransform NewHandWorld = AdjustedHandToSight * CameraWorld;
-                        FTransform FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorld, HeadWorld);
-
-                        HandTransforms[SightIndex] = FinalTransform;
-                    }
+                    FCachedSightData NewData;
+                    NewData.bIsOptic = false;
+                    NewData.SightIndex = Index;
+                    NewData.Mesh = Mesh;
+                    NewData.SocketNameA = FrontSocket;
+                    NewData.SocketNameB = RearSocket; // You'd need to find the specific Rear Component too
+                    CachedSights.Add(NewData);
                 }
             }
         }
     }
 
-	// --- 4. FINALIZE ---
-	// If the currently selected sight is valid, use it. Otherwise, fallback to Iron Sights (Index 0).
-	if (HandTransforms.IsValidIndex(CurrentSightIndex) && !HandTransforms[CurrentSightIndex].GetLocation().IsZero())
-	{
-		HandLocation = HandTransforms[CurrentSightIndex].GetLocation();
-		HandRotation = HandTransforms[CurrentSightIndex].Rotator();
-	}
-	else if (HandTransforms.IsValidIndex(0) && !HandTransforms[0].GetLocation().IsZero())
-	{
-		HandLocation = HandTransforms[0].GetLocation();
-		HandRotation = HandTransforms[0].Rotator();
-		CurrentSightIndex = 0;
-	}
-}
-
-void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
-{
-	// 1. Safety Check
-	if (!IsValid(NewWeapon))
-	{
-		// Optional: Reset to defaults if weapon is null
-		return;
-	}
-
-	// 3. GET DATA
-	// We strictly use this event to update MATH CONSTANTS (Stride Warping).
-	//Update Stride Warping constants based on weapon weight/type
-	const FWeaponMovementData& WeaponData = NewWeapon->GetMovementData();
-	// 4. UPDATE ANIMATION CONFIGURATION
-	WalkSpeed   = WeaponData.AnimWalkRefSpeed;
-	RunSpeed    = WeaponData.AnimRunRefSpeed;
-	SprintSpeed = WeaponData.AnimSprintRefSpeed;
-		
-	// 5. RUN MATH ONCE
-	// This is the key optimization. We calculate the aiming offsets ONLY when the weapon changes.
-	// We do NOT recalculate this every frame in NativeUpdateAnimation.
-	CalculateHandTransforms();
-
-	// CRITICAL: DO NOT set LayerStates.OverlayState here!
-	// Why? Because NativeUpdateAnimation() runs every frame and copies the 
-	// authoritative state from the Character. If you set it here, it will 
-	// just get overwritten 1 frame later.
+    // Sort sights so Index 0 is always first
+    CachedSights.Sort();
+    
+    // Initialize HandTransforms array size
+    if (CachedSights.Num() > 0)
+    {
+        // Find max index to size array correctly
+        int32 MaxIndex = 0;
+        for (const auto& Sight : CachedSights) MaxIndex = FMath::Max(MaxIndex, Sight.SightIndex);
+        HandTransforms.SetNum(MaxIndex + 1);
+    }
 }

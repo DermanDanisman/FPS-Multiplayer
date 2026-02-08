@@ -6,8 +6,6 @@
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Animation/FPSAnimInstance.h"
 #include "Character/FPSPlayerCharacter.h"
-#include "Components/SphereComponent.h"
-#include "Components/WidgetComponent.h"
 #include "GameFramework/Character.h"
 #include "Net/UnrealNetwork.h"
 
@@ -26,33 +24,13 @@ void UFPSCombatComponent::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
-	// 1. UI Logic: Only tell the owner (saves bandwidth).
-	DOREPLIFETIME_CONDITION(ThisClass, OverlappingWeapon, COND_OwnerOnly);
-	
-	// 2. Gameplay Logic: Tell EVERYONE (so they see the gun).
+	// 1. Gameplay Logic: Tell EVERYONE (so they see the gun).
 	DOREPLIFETIME_CONDITION(ThisClass, EquippedWeapon, COND_None);
 }
 
 void UFPSCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	
-}
-
-void UFPSCombatComponent::SetOverlappingWeapon(AFPSWeapon* NewOverlappingWeapon)
-{
-	// --- SERVER LOGIC ---
-
-	// 1. Capture Old Value
-	AFPSWeapon* OldWeapon = OverlappingWeapon;
-    
-	// 2. Update Variable
-	OverlappingWeapon = NewOverlappingWeapon;
-    
-	// 3. Broadcast Event
-	// We delegate the visual responsibility entirely to Blueprints now!
-	// Both Server and Client behave exactly the same way.
-	OnOverlappingWeaponChange.Broadcast(OldWeapon, NewOverlappingWeapon);
 }
 
 void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
@@ -90,9 +68,6 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 		// Crucial for "IsLocallyControlled" checks and lag compensation later.
 		EquippedWeapon->SetOwner(OwnerCharacter);
 		
-		// 4. Cleanup
-		EquippedWeapon->GetAreaSphere()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		
 		// 5. Stat Updates
 		if (WeaponToEquip)
 		{
@@ -105,35 +80,18 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 				// Server applies speed limits (Anti-Cheat / Logic)
 				FPSChar->UpdateMovementSettings(WeaponData);
 				FPSChar->SetOverlayState(WeaponData.OverlayState);
-
 			}
 		}
 		
 		// Server broadcasts delegate locally (for logic running on server)
 		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
 	}
-	
-	// We picked it up, so we aren't "Overlapping" it anymore.
-	SetOverlappingWeapon(nullptr);
 }
 
 void UFPSCombatComponent::Server_EquipWeapon_Implementation(AFPSWeapon* WeaponToEquip)
 {
 	// The Server receives the Client's request and executes the real logic.
 	EquipWeapon(WeaponToEquip);
-}
-
-void UFPSCombatComponent::OnRep_OverlappingWeapon(AFPSWeapon* LastOverlappedWeapon)
-{
-	// --- CLIENT LOGIC ---
-	// This function runs automatically on the Client when the packet arrives from the Server.
-
-	// Store the old one before updating
-	AFPSWeapon* OldWeapon = LastOverlappedWeapon;
-
-	// Broadcast BOTH!
-	// Now Blueprints can say: "Hide Widget on OldWeapon, Show Widget on NewWeapon"
-	OnOverlappingWeaponChange.Broadcast(OldWeapon, OverlappingWeapon);
 }
 
 // --- REPLICATION NOTIFICATION (Client Side) ---

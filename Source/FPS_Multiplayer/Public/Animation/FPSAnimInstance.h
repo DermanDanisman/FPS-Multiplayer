@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
-#include "Structs/CharacterDataContainer.h"
+#include "Structs/FPSCharacterDataContainer.h"
 #include "FPSAnimInstance.generated.h"
 
 // Forward declarations to reduce compile time dependencies
@@ -31,7 +31,7 @@ enum class EMovementDirectionMode : uint8
  * 1. NativeUpdateAnimation (Game Thread): Extracts data from the Character and calculates variables.
  * 2. AnimGraph (Worker Thread): Reads these variables to drive animations in parallel.
  */
-UCLASS()
+UCLASS(PrioritizeCategories="PlayerAnimInstance")
 class FPS_MULTIPLAYER_API UFPSAnimInstance : public UAnimInstance
 {
 	GENERATED_BODY()
@@ -59,10 +59,10 @@ protected:
 	// =========================================================================
 	
 	// Weak Pointers prevent crashes if the character is destroyed while the AnimInstance is still updating.
-	UPROPERTY(BlueprintReadOnly, Category = "References")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|References")
 	TWeakObjectPtr<AFPSPlayerCharacter> FPSCharacter;
 
-	UPROPERTY(BlueprintReadOnly, Category = "References")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|References")
 	TWeakObjectPtr<UCharacterMovementComponent> MovementComponent;
 	
 	// =========================================================================
@@ -70,73 +70,84 @@ protected:
 	// =========================================================================
 	
 	// Current velocity vector (World Space)
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	FVector Velocity;
 
 	// Speed across the ground (ignoring Z/Vertical movement)
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	float GroundSpeed;
 
 	// True if the player is inputting movement AND has speed > Threshold
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	bool bShouldMove; 
 
 	// True if the character is in the air
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	bool bIsFalling;
 	
 	// True if the character is crouching
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	bool bIsCrouching;
 	
 	// True if the character is able to jump
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	bool bCanJump;
 
 	// True if input acceleration is non-zero (pressing WASD)
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	bool bIsAccelerating;
 	
+	// [NEW] Helper for AnimGraph Transitions: Are we in the Sprinting State?
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	bool bIsSprinting;
+
+	// [NEW] Helper for AnimGraph Transitions: Are we Aiming Down Sights?
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	bool bIsAiming;
+	
 	// The "Source of Truth" state struct replicated from the Character
-	UPROPERTY(BlueprintReadOnly, Category = "Essential Data")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	FCharacterLayerStates LayerStates;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	bool bIsLocallyControlled;
 	
 	// =========================================================================
 	//                        LOCOMOTION MATH
 	// =========================================================================
 
 	// Direction (-180 to 180) relative to Actor Rotation
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
 	float Direction = 0.f; 
 
 	// Smoothed/Cached direction
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
 	float LocomotionDirection; 
 
 	// 0=Idle, 1=Walk, 2=Run, 3=Sprint (Driven by curve mapping)
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
 	float GaitValue;
 
 	// Stride Warping: Multiplier for play speed to match capsule speed (Prevents foot sliding)
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
 	float PlayRate = 1.0f;
     
 	// Forward vs Backward selection
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
 	EMovementDirectionMode MovementDirectionMode = EMovementDirectionMode::EMDM_Forward;
 
 	// --- STOP PREDICTION ---
 	// Used to play specific "Plant and Stop" animations based on which way we were moving
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion|History")
 	FRotator LastVelocityRotation;
     
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion|History")
 	bool bHasMovementInput;
     
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion|History")
 	FRotator LastMovementInputRotation;
     
-	UPROPERTY(BlueprintReadOnly, Category = "Locomotion | History")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion|History")
 	float MovementInputVelocityDifference;
 	
 	// =========================================================================
@@ -144,35 +155,82 @@ protected:
 	// =========================================================================
 	
 	// Vertical Aim Offset (Pitch) used for Spine bending
-	UPROPERTY(BlueprintReadOnly, Category = "AimOffset")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|AimOffset")
 	float PitchOffset;
     
 	// Distributed pitch value (e.g. Total Pitch / 8 bones) for smooth spine curvature
-	UPROPERTY(BlueprintReadOnly, Category = "AimOffset")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|AimOffset")
 	FRotator PitchValuePerBone;
     
 	// The Cache: Stores the calculated transform for EVERY sight on the gun.
-	UPROPERTY(BlueprintReadOnly, Category = "Sight Alignment")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	TArray<FTransform> HandTransforms;
+	
+	// The actual transform applied to the bone this frame (after interpolation)
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
+	FTransform CurrentHandTransform;
     
 	// The Active Transform: The specific one we are using RIGHT NOW (driven by CurrentSightIndex)
-	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Final")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	FVector HandLocation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Aiming | Final")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	FRotator HandRotation;
-    
-	// Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.)
-	UPROPERTY(BlueprintReadOnly, Category = "Aiming | State")
-	int32 CurrentSightIndex = 0;
-    
+	
 	// Transition speeds loaded from Weapon Config
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Final")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	float TimeToAim;
     
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Final")
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	float TimeFromAim;
     
+	// Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.)
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|State")
+	int32 CurrentSightIndex = 0;
+
+	// [NEW] How fast to blend between Hip and ADS (Controls "Snappiness")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Aiming|Feel")
+	float AimInterpSpeed = 15.0f;
+	
+	// [NEW] The target transform we want to reach (Either Hip or ADS)
+	FTransform TargetHandTransform;
+    
+	// Add this struct inside your Class or above it
+	struct FCachedSightData
+	{
+		// Is this an Optic or Iron Sight?
+		bool bIsOptic; 
+    
+		// The Index (0, 1, 2)
+		int32 SightIndex; 
+    
+		// Pointer to the specific mesh (so we don't iterate components)
+		TWeakObjectPtr<UMeshComponent> Mesh; 
+    
+		// The Socket Names we found (so we don't check tags)
+		FName SocketNameA; // Optic or Front
+		FName SocketNameB; // Rear (if Iron Sight)
+    
+		// Helper to sort array by Index
+		bool operator<(const FCachedSightData& Other) const
+		{
+			return SightIndex < Other.SightIndex;
+		}
+	};
+	
+	// CACHED VARIABLES (Updated only when weapon changes)
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Optimization")
+	FTransform CurrentHipFireOffset;
+
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Optimization")
+	float CurrentDistanceFromCamera;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Optimization")
+	FVector CurrentLeftHandEffectorLocation;
+
+	// The clean list of sights. No strings, just data.
+	TArray<FCachedSightData> CachedSights;
+	
 	// Helper struct for sorting/debugging sights
 	struct FSightMeshData
 	{
@@ -189,41 +247,41 @@ protected:
 
 	// --- DIRECTION THRESHOLDS ---
 	// Buffer determines how much "stickiness" the direction switch has to prevent flickering.
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Thresholds")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Thresholds")
 	float Buffer = 5.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Thresholds")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Thresholds")
 	float DirectionThresholdMax = 90.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Thresholds")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Thresholds")
 	float DirectionThresholdMin = -90.0f;
 	
 	// --- AIM CONFIGURATIONS ---
 	// Higher = Snappier. Lower = Smoother (but "laggier"). 
 	// Start with 15.0f.
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | AimOffset")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|AimOffset")
 	float PitchPerBoneInterpSpeed = 15.0f;
 	
 	// --- SKELETON CONFIGURATION ---
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Skeleton")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Skeleton")
 	FName HandBoneName = FName("hand_r");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Skeleton")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Skeleton")
 	FName HeadBoneName = FName("head");
 
 	// --- SPEED CONFIGURATION ---
 	// Defines the speed at which the character is considered "Walking" (Gait 1.0)
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Dynamic Speeds")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Dynamic Speeds")
 	float WalkSpeed = 150.f;
 	float WalkGaitValue = 1.f;
 
 	// Defines the speed at which the character is considered "Running" (Gait 2.0)
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Dynamic Speeds")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Dynamic Speeds")
 	float RunSpeed = 300.f;
 	float RunGaitValue = 2.f;
 	
 	// Defines the speed at which the character is considered "Sprinting" (Gait 3.0)
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | Dynamic Speeds")
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Dynamic Speeds")
 	float SprintSpeed = 600.f;
 	float SprintGaitValue = 3.f;
 	
