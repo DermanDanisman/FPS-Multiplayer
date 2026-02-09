@@ -61,7 +61,7 @@ class FPS_MULTIPLAYER_API UFPSWeaponData : public UPrimaryDataAsset
 	
 public:
 
-	UPROPERTY(EditDefaultsOnly, Category = "Identity")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Identity")
 	FString WeaponName = "Rifle";
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Essential")
@@ -98,56 +98,125 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Sound")
 	TObjectPtr<USoundBase> FireSound;
 
-	// --- PROCEDURAL AIMING (Moved from Weapon.h) ---
+	// --- PROCEDURAL AIMING & IK CONFIGURATION ---
 
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
-	FTransform HipFireOffset;
+    /** * The forward offset (X-Axis) applied to the weapon when Aiming Down Sights (ADS).
+     * @usage Lower values pull the sight closer to the eye. Higher values push it away.
+     * @note Use this to prevent the rear sight from clipping into the camera or to adjust the "eye relief" of a scope.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
+    float DistanceFromCamera = 0.f;
+
+    /** * The procedural offset applied to the weapon when NOT aiming (Hip Fire).
+     * @usage Controls the "resting" position of the gun on screen.
+     * X = Forward/Back, Y = Right/Left, Z = Up/Down.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
+    FTransform HipFireOffset;
+
+    // --- TWO BONE IK (HAND PLACEMENT) ---
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
-	FVector LeftHandEffectorLocation;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
-	float DistanceFromCamera = 0.f;
-
-	/**
-	 * The time (in Seconds) it takes to fully transition from Hip Fire to ADS.
-	 * @usage Used to calculate the interpolation speed for procedural alignment.
-	 * @warning Must be > 0.0f to avoid DivideByZero crashes in the AnimInstance.
-	 * @recommendation Snipers: 0.4s | Rifles: 0.25s | Pistols: 0.15s
+	/** * The procedural offset for the Right Hand IK Effector.
+	 * @usage Generally stays at (0,0,0) as the right hand is the parent, but can be used to tweak grip alignment without re-importing meshes.
+	 * @default (X=12.0, Y=3.0, Z=-5.0)
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01", UIMin = "0.01"))
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
+	FVector RightHandEffectorLocation = FVector(12.f, 3.f, -5.f); 
+
+	/** * The Pole Vector target for the Right Elbow.
+	 * @usage Controls the direction the right elbow points. Critical for preventing the "Chicken Wing" look.
+	 * @default (X=-68.0, Y=-40.0, Z=113.0)
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
+	FVector RightHandJointTargetLocation = FVector(-68.f, 40.f, 113.f);
+
+    /** * The target location for the Left Hand IK Effector (relative to the weapon root).
+     * @usage Adjust this to make the left hand firmly grip the handguard or foregrip.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
+    FVector LeftHandEffectorLocation;
+
+    /** * The Pole Vector target for the Left Elbow.
+     * @usage Controls the direction the left elbow points. Move this if the arm looks broken or flips incorrectly.
+     * @default (X=98.0, Y=12.2, Z=-52.7)
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
+    FVector LeftHandJointTargetLocation = FVector(98.f, 12.f, -52.5f); 
+	
+	// --- ANIMATION TIMING (Visuals) ---
+
+	/** * The duration (in Seconds) for the Animation Blueprint to blend from Hip Pose to ADS Pose.
+	 * @usage Bind this to the "Blend Duration" in your AnimGraph State Machine (Hip -> ADS transition).
+	 * @note Determines how fast the arms visually lift up. Does NOT affect the procedural math speed.
+	 * @example Sniper: 0.4s (Slow lift) | Pistol: 0.1s (Fast snap)
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01"))
 	float TimeToAim = 0.25f;
 
-	/** 
-	 * The time (in Seconds) it takes to return from ADS to Hip Fire.
-	 * Usually faster than aiming in.
-	 * @usage Used to calculate the interpolation speed for procedural alignment.
-	 * @warning Must be > 0.0f to avoid DivideByZero crashes.
+	/** * The duration (in Seconds) for the Animation Blueprint to blend from ADS Pose back to Hip Pose.
+	 * @usage Bind this to the "Blend Duration" in your AnimGraph State Machine (ADS -> Hip transition).
+	 * @note Usually slightly faster than TimeToAim for responsiveness.
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01", UIMin = "0.01"))
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01"))
 	float TimeFromAim = 0.2f;
 	
-	// --- SIGHT CONFIGURATION ---
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-	FName OpticSocketName = FName("OpticAimpoint");
+	// --- SIGHT CONFIGURATION (Socket & Tag Linking) ---
 
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-	FName FrontSightSocketName = FName("FrontAimpoint");
+    /** * The name of the socket on the Weapon Mesh that represents the "Red Dot" or "Crosshair" location.
+     * @usage Procedural aiming will rotate the weapon until this socket is aligned with the Camera center.
+     * @requirement Must exist on the mesh component tagged with 'OpticTagPrefix'.
+     * @default "OpticAimpoint"
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
+    FName OpticSocketName = FName("OpticAimpoint");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-	FName RearSightSocketName = FName("RearAimpoint");
+    /** * The name of the socket placed at the TIP of the Front Iron Sight post.
+     * @usage Used in combination with RearSightSocketName to calculate the alignment vector (Line of Sight).
+     * @requirement Must exist on the mesh component tagged with 'FrontSightTagPrefix'.
+     * @default "FrontAimpoint"
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
+    FName FrontSightSocketName = FName("FrontAimpoint");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-	FString OpticTagPrefix = TEXT("OpticSight");
+    /** * The name of the socket placed at the CENTER of the Rear Iron Sight notch or peephole.
+     * @usage The aim math pivots the gun around this point.
+     * @requirement Must exist on the same mesh as the Front Sight, OR on a component tagged 'RearSightTagPrefix'.
+     * @default "RearAimpoint"
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
+    FName RearSightSocketName = FName("RearAimpoint");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-	FString FrontSightTagPrefix = TEXT("FrontSight");
+    /** * The Component Tag prefix used to identify Optic meshes (Red Dots, Scopes).
+     * @usage The code looks for components with tags like "OpticSight_0", "OpticSight_1".
+     * @note Do NOT include the "_0" index here. Just the prefix.
+     * @default "OpticSight"
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
+    FString OpticTagPrefix = TEXT("OpticSight");
 
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-	FString RearSightTagPrefix = TEXT("RearSight");
+    /** * The Component Tag prefix used to identify the mesh containing the Front Iron Sight.
+     * @usage Usually applied to the main weapon mesh tag array (e.g., "FrontSight_0").
+     * @note This is the "Entry Point" for finding Iron Sights.
+     * @default "FrontSight"
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
+    FString FrontSightTagPrefix = TEXT("FrontSight");
 
-	// --- MOVEMENT DATA ---
-	// (You can move your FWeaponMovementData struct in here too!)
-	UPROPERTY(EditDefaultsOnly, Category = "Movement")
-	FWeaponMovementData WeaponMovementData;
+    /** * The Component Tag prefix used to identify the mesh containing the Rear Iron Sight.
+     * @usage Only required if the Rear Sight is a separate attachment (e.g., a removable Carry Handle).
+     * @note If the Rear Sight is on the main mesh (like an AK47), the code finds it automatically without this tag.
+     * @default "RearSight"
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
+    FString RearSightTagPrefix = TEXT("RearSight");
+
+    // --- MOVEMENT DATA ---
+
+    /** * Configuration for how this weapon affects player movement physics and animation.
+     * @usage 
+     * 1. Physics: Sets the CharacterMovementComponent's MaxWalkSpeed (e.g., Heavy weapons make you slow).
+     * 2. Animation: Sets the "Reference Speeds" for Stride Warping to prevent foot sliding.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Movement")
+    FWeaponMovementData WeaponMovementData;
 };

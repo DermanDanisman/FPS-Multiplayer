@@ -151,7 +151,7 @@ protected:
 	float MovementInputVelocityDifference;
 	
 	// =========================================================================
-	//                        PROCEDURAL AIMING (FABRIK / IK)
+	//                   --- PROCEDURAL MATH SETTINGS (Logic) ---
 	// =========================================================================
 	
 	// Vertical Aim Offset (Pitch) used for Spine bending
@@ -176,6 +176,15 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	FRotator HandRotation;
+
+	/** * Controls the interpolation speed for the Procedural Hand Transform (TInterpTo).
+	 * @usage Determines how "snappy" the sight alignment feels. 
+	 * @value Higher (20+) = Snappy/Instant alignment. 
+	 * @value Lower (10-) = Smooth/Floaty alignment (gun feels heavy).
+	 * @note This is INDEPENDENT of the animation speed. You generally want this HIGH so the crosshair aligns quickly even if the animation is slow.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Configuration | AimOffset")
+	float AimInterpSpeed = 15.0f;
 	
 	// Transition speeds loaded from Weapon Config
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
@@ -183,7 +192,27 @@ protected:
     
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	float TimeFromAim;
-    
+	
+	// CACHED VARIABLES (Updated only when weapon changes)
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
+	FTransform CurrentHipFireOffset;
+
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
+	float CurrentDistanceFromCamera;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
+	FVector CurrentRightHandEffectorLocation;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
+	FVector CurrentRightHandJointTargetLocation;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
+	FVector CurrentLeftHandEffectorLocation;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
+	FVector CurrentLeftHandJointTargetLocation;
+	
 	// Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.)
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|State")
 	int32 CurrentSightIndex = 0;
@@ -219,16 +248,6 @@ protected:
 			return SightIndex < Other.SightIndex;
 		}
 	};
-	
-	// CACHED VARIABLES (Updated only when weapon changes)
-	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Optimization")
-	FTransform CurrentHipFireOffset;
-
-	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Optimization")
-	float CurrentDistanceFromCamera;
-	
-	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Optimization")
-	FVector CurrentLeftHandEffectorLocation;
 
 	// The clean list of sights. No strings, just data.
 	TArray<FCachedSightData> CachedSights;

@@ -52,8 +52,26 @@ void UFPSAnimInstance::UpdateReferences()
 		FPSCharacter = Cast<AFPSPlayerCharacter>(PawnOwner);
 		if (FPSCharacter.IsValid())
 		{
-			FPSCharacter->GetCombatComponent()->OnWeaponEquippedDelegate.AddDynamic(this, &ThisClass::OnCharacterWeaponEquipped);
+			// 1. SAFETY CHECK: Ensure Combat Component exists
+			UFPSCombatComponent* Combat = FPSCharacter->GetCombatComponent();
+			if (Combat)
+			{
+				// 2. SAFETY UNBIND: Prevent duplicate bindings or stale references
+				// If we are re-initializing (e.g. changed weapon), remove the old bind first.
+				Combat->OnWeaponEquippedDelegate.RemoveDynamic(this, &ThisClass::OnCharacterWeaponEquipped);
+                
+				// 3. BIND
+				Combat->OnWeaponEquippedDelegate.AddDynamic(this, &ThisClass::OnCharacterWeaponEquipped);
+			}
+
 			MovementComponent = Cast<UCharacterMovementComponent>(FPSCharacter->GetMovementComponent());
+            
+			// ... Initialize your other cached variables here if needed ...
+			if (Combat && Combat->GetEquippedWeapon())
+			{
+				// Optional: If we spawned late and weapon is ALREADY there, manually trigger the update
+				// OnCharacterWeaponEquipped(Combat->GetEquippedWeapon());
+			}
 		}
 	}
 }
@@ -467,35 +485,12 @@ void UFPSAnimInstance::CalculateHandTransforms()
     // =========================================================
     // This MUST run every frame. TInterpTo moves 'Current' towards 'Target' 
     // by a tiny percentage based on DeltaTime.
-    
-	// START NEW LOGIC -----------------------------------------
-	float CurrentSpeed = 15.0f; // Default safety fallback
-	
-	// Are we aiming? Use "Time To Aim"
-	if (LayerStates.AimState == EAimState::EAS_ADS || LayerStates.AimState == EAimState::EAS_Zoomed)
-	{
-		// Safety: Prevent divide by zero
-		if (TimeToAim > 0.0f)
-		{
-			// Example: 1.0 / 0.2s = Speed 5.0
-			CurrentSpeed = 1.0f / TimeToAim; 
-		}
-	}
-	// Are we stopping aim? Use "Time From Aim"
-	else
-	{
-		if (TimeFromAim > 0.0f)
-		{
-			CurrentSpeed = 1.0f / TimeFromAim;
-		}
-	}
-	// END NEW LOGIC -------------------------------------------
 	
     CurrentHandTransform = UKismetMathLibrary::TInterpTo(
        CurrentHandTransform, 
        DesiredTarget, 
        GetDeltaSeconds(), 
-       CurrentSpeed
+       AimInterpSpeed
     );
 
     // =========================================================
@@ -516,7 +511,10 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
 
     CurrentHipFireOffset = NewWeapon->GetHipFireOffset();
     CurrentDistanceFromCamera = NewWeapon->GetDistanceFromCamera();
+	CurrentRightHandEffectorLocation = NewWeapon->GetRightHandEffectorLocation();
+	CurrentRightHandJointTargetLocation = NewWeapon->GetRightHandJointTargetLocation();
 	CurrentLeftHandEffectorLocation = NewWeapon->GetLeftHandEffectorLocation();
+	CurrentLeftHandJointTargetLocation = NewWeapon->GetLeftHandJointTargetLocation();
     TimeToAim = NewWeapon->GetTimeToAim();
     TimeFromAim = NewWeapon->GetTimeFromAim();
 

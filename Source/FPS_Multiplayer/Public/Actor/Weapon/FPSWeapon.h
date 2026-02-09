@@ -70,7 +70,11 @@ public:
 	FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
 	
 	FORCEINLINE FTransform GetHipFireOffset() const { return WeaponData ? WeaponData->HipFireOffset : FTransform().Identity; }
+	FORCEINLINE FVector GetRightHandEffectorLocation() const { return WeaponData ? WeaponData->RightHandEffectorLocation : FVector::ZeroVector; }
+	FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightHandJointTargetLocation : FVector::ZeroVector; }
 	FORCEINLINE FVector GetLeftHandEffectorLocation() const { return WeaponData ? WeaponData->LeftHandEffectorLocation : FVector::ZeroVector; }
+	FORCEINLINE FVector GetLeftHandJointTargetLocation() const { return WeaponData ? WeaponData->LeftHandJointTargetLocation : FVector::ZeroVector; }
+
 	FORCEINLINE float GetTimeToAim() const { return WeaponData ? WeaponData->TimeToAim : 0.5f; }
 	FORCEINLINE float GetTimeFromAim() const { return WeaponData ? WeaponData->TimeFromAim : 0.2f; }
 	FORCEINLINE float GetDistanceFromCamera() const { return WeaponData ? WeaponData->DistanceFromCamera : 0.f; }
