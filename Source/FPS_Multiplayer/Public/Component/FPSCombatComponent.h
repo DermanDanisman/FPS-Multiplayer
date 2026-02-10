@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Data/Enums/FPSCharacterTypes.h"
 #include "FPSCombatComponent.generated.h"
 
 class AFPSPlayerCharacter;
@@ -27,12 +28,30 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
 	FORCEINLINE AFPSWeapon* GetEquippedWeapon() { return EquippedWeapon; }
 	
+	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
+	FORCEINLINE ECombatState GetCombatState() const { return CombatState; }
+	
+	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
+	FORCEINLINE int32 GetCarriedAmmo() const { return CarriedAmmo; }
+	
 	/**
 	 * Main logic for equipping a weapon.
 	 * Replication handled
 	 */
 	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
 	void EquipWeapon(AFPSWeapon* WeaponToEquip);
+	
+	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
+	void StartFire();
+	
+	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
+	void StopFire();
+	
+	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
+	void Reload();
+	
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	void FinishReloading();
 
 protected:
 	// Called when the game starts
@@ -54,7 +73,28 @@ protected:
 	UFUNCTION()
 	void OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon);
 	
+	UFUNCTION()
+	void OnRep_CombatState(ECombatState PreviousCombatState);
+
 private:
+	
+	// The Timer Function (Called repeatedly)
+	void Fire();
+	
+	UFUNCTION(Server, Reliable)
+	void Server_Reload();
+	
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_Reload();
+	
+	// The Eyes (Raycast)
+	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
+
+	// Timer Handle for Automatic Fire
+	FTimerHandle FireTimerHandle;
+
+	// Variable to track if button is held down
+	bool bFireButtonPressed;
 	
 	/* * [GAMEPLAY STATE]
 	 * Tracks the weapon currently in the player's hands.
@@ -64,6 +104,9 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
 	TObjectPtr<AFPSWeapon> EquippedWeapon;
 	
-	UPROPERTY(EditAnywhere, Category = "CombatComponent")
-	FName CharacterWeaponSocket = "WeaponSocket";
+	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
+	ECombatState CombatState;
+	
+	UPROPERTY(Replicated)
+	int32 CarriedAmmo = 120;
 };

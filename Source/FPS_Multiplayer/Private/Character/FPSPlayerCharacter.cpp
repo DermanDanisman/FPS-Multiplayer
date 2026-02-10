@@ -131,13 +131,21 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &ThisClass::OnSprintReleased);
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &ThisClass::OnSprintReleased);
 		
+		// Fire (LMB)
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ThisClass::OnFirePressed);
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Ongoing, this, &ThisClass::OnFirePressed);
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &ThisClass::OnFireReleased);
+		
+		// Reload (R)
+		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &ThisClass::OnReloadPressed);
+		
 		// Aim (RMB)
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &ThisClass::OnAimPressed);
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &ThisClass::OnAimReleased);
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Canceled, this, &ThisClass::OnAimReleased);
 		
 		// Interaction (ex: F Key)
-		EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ThisClass::OnInteractedPressed);
+		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::OnInteractedPressed);
 	}
 }
 
@@ -237,6 +245,21 @@ void AFPSPlayerCharacter::OnEndCrouch(float HeightAdjust, float ScaledHeightAdju
 	Super::OnEndCrouch(HeightAdjust, ScaledHeightAdjust);
 	
 	LayerStates.Stance = EStance::ES_Standing;
+}
+
+void AFPSPlayerCharacter::OnFirePressed()
+{
+	CombatComponent->StartFire();
+}
+
+void AFPSPlayerCharacter::OnFireReleased()
+{
+	CombatComponent->StopFire();
+}
+
+void AFPSPlayerCharacter::OnReloadPressed()
+{
+	CombatComponent->Reload();
 }
 
 void AFPSPlayerCharacter::OnAimPressed()

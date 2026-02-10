@@ -41,16 +41,10 @@ public:
 	
 	// Called once when the game starts (similar to BeginPlay)
 	virtual void NativeInitializeAnimation() override;
-	
+
 	// Called every frame. This is the main update loop.
 	// Runs on Game Thread -> Safe to access Character & MovementComponent.
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
-	
-	/**
-	 * Calculates the precise hand offsets needed to align the weapon sights with the camera.
-	 * This is an EVENT-BASED calculation (runs only when weapon changes), not per-frame.
-	 */
-	void CalculateHandTransforms();
 
 protected:
 	
@@ -316,6 +310,11 @@ private:
 	void CalculatePlayRate();
 	void CalculatePitchValuePerBone();
 	void CalculateAimOffset();
+	/**
+	 * Calculates the precise hand offsets needed to align the weapon sights with the camera.
+	 * This is an EVENT-BASED calculation (runs only when weapon changes), not per-frame.
+	 */
+	void CalculateHandTransforms();
 	
 	// Event listener: Fires when the Combat Component successfully equips a new gun
 	UFUNCTION()

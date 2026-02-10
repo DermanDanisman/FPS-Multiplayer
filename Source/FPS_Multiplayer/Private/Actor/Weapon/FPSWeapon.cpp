@@ -5,6 +5,7 @@
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCombatComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 
 AFPSWeapon::AFPSWeapon()
@@ -112,4 +113,123 @@ void AFPSWeapon::OnRep_WeaponState()
 			break;
 		default: ;
 	}
+}
+
+
+
+void AFPSWeapon::Fire(const FVector& HitTarget)
+{
+	// 1. DEDUCT AMMO (Visual Prediction)
+	// We clamp it so UI updates instantly. Real authority is on Server.
+	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
+	
+	// 2. PLAY FX (Visual Prediction)
+	// Play sound/flash immediately on the client firing so it feels "Lag Free"
+	PlayFireEffects(HitTarget);
+	
+	// 3. TELL SERVER
+	Server_Fire(HitTarget);
+}
+
+void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
+{
+	// 1. VALIDATION (Anti-Cheat)
+	// If client lied about ammo, we stop them here.
+	if (CurrentClipAmmo < 0) return;
+	
+	// Deduct Actual Ammo
+	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
+	
+	// 2. DEAL DAMAGE
+	// Only the Server can deal damage.
+	// We assume the TraceHitTarget is valid for now (in a real anti-cheat, we'd re-trace here).
+	/* UGameplayStatics::ApplyPointDamage(
+	   TargetActor, Damage, ...
+	);
+	*/
+
+	// 3. REPLICATE FX
+	// Tell all other clients to play the sound/flash
+	Multicast_Fire(TraceHitTarget);
+}
+
+void AFPSWeapon::Multicast_Fire_Implementation(const FVector& TraceHitTarget)
+{
+	// Optimization: The owner (you) already played the effect in Fire().
+	// We don't want to play it twice (echo effect).
+	if (!GetOwner()) return;
+	
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (OwnerCharacter && OwnerCharacter->IsLocallyControlled()) return;
+
+	PlayFireEffects(TraceHitTarget);
+}
+
+void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
+{
+	if (!WeaponData) return;
+
+	// Muzzle Flash
+	if (WeaponData->MuzzleFlash)
+	{
+		UGameplayStatics::SpawnEmitterAttached(
+			WeaponData->MuzzleFlash, 
+			WeaponMesh, 
+			WeaponData->MuzzleSocketName,
+			FVector::ZeroVector, 
+			FRotator::ZeroRotator, 
+			EAttachLocation::SnapToTarget, 
+			true
+		);
+	}
+
+	// Fire Sound
+	if (WeaponData->FireSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, WeaponData->FireSound, GetActorLocation());
+	}
+    
+	// Impact Particles (Optional)
+	if (WeaponData->ImpactParticles)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), WeaponData->ImpactParticles, TraceHitTarget);
+	}
+	
+	UAnimMontage* MontageToPlay = WeaponData->HipFireMontage;
+
+	// Check if character is Aiming
+	if (ACharacter* Char = Cast<ACharacter>(GetOwner()))
+	{
+		// You need to cast to your specific character to read the Aim State
+		if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(Char))
+		{
+			if (FPSChar->GetLayerStates().AimState == EAimState::EAS_ADS)
+			{
+				MontageToPlay = WeaponData->AimedFireMontage;
+			}
+		}
+        
+		// Play the selected montage
+		if (MontageToPlay)
+		{
+			Char->GetMesh()->GetAnimInstance()->Montage_Play(MontageToPlay);
+		}
+	}
+	
+	if (WeaponData->FireCameraShake)
+	{
+		ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+		if (OwnerCharacter->IsLocallyControlled())
+		{
+			if (APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController()))
+			{
+				PC->ClientStartCameraShake(WeaponData->FireCameraShake, 1.0f);
+			}
+		}
+	}
+}
+
+void AFPSWeapon::AddAmmo(int32 AmountToAdd)
+{
+	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo + AmountToAdd, 0, GetMaxClipAmmo());
 }

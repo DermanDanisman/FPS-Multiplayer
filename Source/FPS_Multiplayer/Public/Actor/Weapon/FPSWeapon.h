@@ -68,6 +68,7 @@ public:
 	FORCEINLINE int32 GetMaxClipAmmo() const { return WeaponData ? WeaponData->MaxClipAmmo : 30; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
 	FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
+	FORCEINLINE void SetInitialClipAmmo() { CurrentClipAmmo = GetMaxClipAmmo(); }
 	
 	FORCEINLINE FTransform GetHipFireOffset() const { return WeaponData ? WeaponData->HipFireOffset : FTransform().Identity; }
 	FORCEINLINE FVector GetRightHandEffectorLocation() const { return WeaponData ? WeaponData->RightHandEffectorLocation : FVector::ZeroVector; }
@@ -100,6 +101,11 @@ public:
 	virtual void Interact_Implementation(APawn* InstigatorPawn) override;
 	virtual void OnFocusGained_Implementation(APawn* InstigatorPawn) override;
 	virtual void OnFocusLost_Implementation(APawn* InstigatorPawn) override;
+	
+	// Called by CombatComponent. Needs the HitTarget to know where the bullet goes!
+	void Fire(const FVector& HitTarget);
+	
+	void AddAmmo(int32 AmountToAdd);
 
 protected:
 	
@@ -109,6 +115,16 @@ protected:
 	
 	UFUNCTION()
 	virtual void OnRep_WeaponState();
+	
+	// --- RPCs ---
+	UFUNCTION(Server, Reliable)
+	void Server_Fire(const FVector& TraceHitTarget);
+
+	UFUNCTION(NetMulticast, Unreliable) // Unreliable is faster for FX!
+	void Multicast_Fire(const FVector& TraceHitTarget);
+
+	// Helper to play sounds/particles locally
+	void PlayFireEffects(const FVector& TraceHitTarget) const;
 
 private:
 	

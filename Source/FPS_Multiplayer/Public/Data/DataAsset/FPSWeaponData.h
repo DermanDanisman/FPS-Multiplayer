@@ -65,7 +65,10 @@ public:
 	FString WeaponName = "Rifle";
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Essential")
-	FName WeaponHandSocketName = "WeaponHandSocketName";
+	FName WeaponHandSocketName = "WeaponHandSocket";
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Essential")
+	FName MuzzleSocketName = "Muzzle";
 
 	// --- COMBAT STATS ---
     
@@ -86,6 +89,17 @@ public:
     
 	// --- ANIMATION & FX ---
 
+	/** * The animation to play on the Character when firing.
+	 * @setup Create a Montage from your Fire Sequence. 
+	 * @settings Inside the Montage, set the "Slot" to something like "ActionSlot" or "FireSlot".
+	 * @note If your animation is Additive, ensure the Montage uses the correct Additive settings.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	TObjectPtr<UAnimMontage> AimedFireMontage;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	TObjectPtr<UAnimMontage> HipFireMontage;
+	
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> ReloadMontage;
 
@@ -97,6 +111,16 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Sound")
 	TObjectPtr<USoundBase> FireSound;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Sound")
+	TObjectPtr<USoundBase> ReloadSound;
+	
+	/** * The Camera Shake class to play when firing.
+	 * @usage Creates that "kick" feeling on the screen.
+	 * @recommendation Use a 'MatineeCameraShake' or 'LegacyCameraShake' blueprint for easy tuning.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Camera")
+	TSubclassOf<UCameraShakeBase> FireCameraShake;
 
 	// --- PROCEDURAL AIMING & IK CONFIGURATION ---
 

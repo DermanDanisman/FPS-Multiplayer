@@ -91,10 +91,16 @@ protected:
 	TObjectPtr<UInputAction> SprintAction;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	TObjectPtr<UInputAction> FireAction;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	TObjectPtr<UInputAction> ReloadAction;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
 	TObjectPtr<UInputAction> AimAction;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
-	TObjectPtr<UInputAction> InteractionAction;
+	TObjectPtr<UInputAction> InteractAction;
 	
 	// A duplicate mesh used ONLY to cast shadows for the local player.
 	// It follows the Main Mesh animations perfectly using Master Pose.
@@ -116,6 +122,11 @@ protected:
 	
 	void OnSprintPressed();
 	void OnSprintReleased();
+	
+	void OnFirePressed();
+	void OnFireReleased();
+	
+	void OnReloadPressed();
 	
 	// Input Handlers
 	void OnAimPressed();
