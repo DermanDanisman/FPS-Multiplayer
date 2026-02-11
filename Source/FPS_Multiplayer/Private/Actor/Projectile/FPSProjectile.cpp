@@ -6,65 +6,92 @@
 #include "Components/SphereComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
 
 
 AFPSProjectile::AFPSProjectile()
 {
 	PrimaryActorTick.bCanEverTick = false;
+    
+	// Networking
 	bReplicates = true;
 	SetReplicatingMovement(true);
-	
+    
+	// 1. Collision (Root)
 	CollisionSphere = CreateDefaultSubobject<USphereComponent>(TEXT("CollisionSphere"));
+	CollisionSphere->InitSphereRadius(5.0f);
 	CollisionSphere->SetCollisionProfileName("Projectile");
+	// Optimization: Projectiles shouldn't return overlap events unless we specifically need them
+	CollisionSphere->bReturnMaterialOnMove = true; // Useful for impact FX later
 	SetRootComponent(CollisionSphere);
-	
+    
+	// 2. Visuals
 	ProjectileMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ProjectileMesh"));
 	ProjectileMesh->SetupAttachment(CollisionSphere);
 	ProjectileMesh->SetCollisionProfileName("NoCollision");
 	ProjectileMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	
-	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileComp"));
+    
+	// 3. Movement
+	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovementComponent"));
 	ProjectileMovement->InitialSpeed = 15000.f;
+	ProjectileMovement->MaxSpeed = 15000.f;
 	ProjectileMovement->bRotationFollowsVelocity = true;
 	ProjectileMovement->bShouldBounce = false;
+	ProjectileMovement->ProjectileGravityScale = 1.0f; // Enable bullet drop!
+}
+
+void AFPSProjectile::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	DOREPLIFETIME(ThisClass, Damage);
 }
 
 void AFPSProjectile::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	// On Server
+	// Only the Server needs to listen for hits to deal damage
 	if (HasAuthority())
 	{
-		CollisionSphere->OnComponentHit.AddDynamic(this, &AFPSProjectile::OnHit);
+		CollisionSphere->OnComponentHit.AddDynamic(this, &ThisClass::OnHit);
 	}
-	
-	// SetLifeSpan(5.f);
+    
+	// Safety fallback: Destroy projectile after 5 seconds if it flies into the void
+	SetLifeSpan(5.f);
+}
+
+void AFPSProjectile::InitializeProjectile(float InDamage)
+{
+	// The Weapon calls this right after spawning
+	Damage = InDamage;
 }
 
 void AFPSProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	FVector NormalImpulse, const FHitResult& Hit)
 {
-	// Server Authority Check
+	// 1. Authority Guard
 	if (!HasAuthority()) return;
 
-	// Don't hit yourself
-	if (OtherActor == GetOwner()) return;
-	
+	// 2. Self-Hit Guard (Don't shoot ourselves or our gun)
+	if (OtherActor == GetOwner() || OtherActor == GetInstigator()) return;
+    
+	// 3. Deal Damage
 	if (OtherActor)
 	{
 		UGameplayStatics::ApplyPointDamage(
-			OtherActor,
-			Damage,
-			GetActorForwardVector(),
-			Hit,
-			GetInstigatorController(),
-			this,
-			UDamageType::StaticClass()
+		   OtherActor,
+		   Damage,
+		   GetActorForwardVector(),
+		   Hit,
+		   GetInstigatorController(),
+		   this,
+		   UDamageType::StaticClass()
 		);
 	}
 	
-	Destroy(); // Poof
+	// 4. Cleanup
+	Destroy();
 }
 
 

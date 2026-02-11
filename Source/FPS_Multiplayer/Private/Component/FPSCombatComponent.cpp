@@ -161,13 +161,17 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 void UFPSCombatComponent::StartFire()
 {
 	if (!EquippedWeapon) return;
+	if (CombatState != ECombatState::ECS_Unoccupied) return;
+	
 	bFireButtonPressed = true;
+	CombatState = ECombatState::ECS_Firing;
 	Fire(); // Fire first shot immediately
 }
 
 void UFPSCombatComponent::StopFire()
 {
 	bFireButtonPressed = false;
+	CombatState = ECombatState::ECS_Unoccupied;
 	GetWorld()->GetTimerManager().ClearTimer(FireTimerHandle);
 }
 
@@ -176,35 +180,41 @@ void UFPSCombatComponent::Fire()
 	// 1. GATES
 	if (!bFireButtonPressed) return;
 	if (!EquippedWeapon) return;
-	if (CombatState != ECombatState::ECS_Unoccupied) return; 
-    
-	// 2. AMMO CHECK
-	if (EquippedWeapon->GetCurrentClipAmmo() <= 0) 
+
+	if (CombatState == ECombatState::ECS_Firing)
 	{
-		// Empty Click Sound could go here
-		StopFire(); 
-		// Optional: Auto-Reload
-		// Reload(); 
-		return;
+		// 2. AMMO CHECK
+		if (EquippedWeapon->GetCurrentClipAmmo() <= 0) 
+		{
+			// Empty Click Sound could go here
+			StopFire(); 
+			// Optional: Auto-Reload
+			// Reload(); 
+			return;
+		}
+
+		// 3. EXECUTION
+		FHitResult HitResult;
+		TraceUnderCrosshairs(HitResult);
+    
+		FVector HitTarget = HitResult.bBlockingHit ? HitResult.ImpactPoint : HitResult.TraceEnd;
+		EquippedWeapon->Fire(HitTarget);
+
+		// 4. AUTOMATIC LOOP
+		if (EquippedWeapon->IsAutomatic())
+		{
+			GetWorld()->GetTimerManager().SetTimer(
+			   FireTimerHandle, 
+			   this, 
+			   &ThisClass::Fire, 
+			   EquippedWeapon->GetFireDelay(), 
+			   false 
+			);
+		}
 	}
-
-	// 3. EXECUTION
-	FHitResult HitResult;
-	TraceUnderCrosshairs(HitResult);
-    
-	FVector HitTarget = HitResult.bBlockingHit ? HitResult.ImpactPoint : HitResult.TraceEnd;
-	EquippedWeapon->Fire(HitTarget);
-
-	// 4. AUTOMATIC LOOP
-	if (EquippedWeapon->IsAutomatic())
+	else
 	{
-		GetWorld()->GetTimerManager().SetTimer(
-		   FireTimerHandle, 
-		   this, 
-		   &ThisClass::Fire, 
-		   EquippedWeapon->GetFireDelay(), 
-		   false 
-		);
+		StopFire(); 
 	}
 }
 
@@ -235,7 +245,7 @@ void UFPSCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 		{
 			// Start slightly forward to avoid colliding with own capsule if running fast
 			FVector Start = CrosshairWorldPosition + (CrosshairWorldDirection * 30.f); 
-			FVector End = Start + (CrosshairWorldDirection * EquippedWeapon->GetRange());
+			FVector End = Start + (CrosshairWorldDirection * EquippedWeapon->GetWeaponRange());
            
 			GetWorld()->LineTraceSingleByChannel(
 			   TraceHitResult,

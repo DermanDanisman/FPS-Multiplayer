@@ -156,7 +156,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 				{
 					UGameplayStatics::ApplyPointDamage(
 						HitResult.GetActor(),
-						GetDamage(),
+						GetWeaponDamage(),
 						(TraceHitTarget - TraceStart).GetSafeNormal(),
 						HitResult,
 						GetOwner()->GetInstigatorController(),
@@ -189,20 +189,26 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 					// Calculate Rotation: Look from Muzzle -> Crosshair Target
 					TargetRotation = (TraceHitTarget - MuzzleLocation).Rotation();
 				}
-	            
-				FActorSpawnParameters SpawnParams;
-				SpawnParams.Owner = GetOwner();
-				SpawnParams.Instigator = Cast<APawn>(GetOwner());
-				SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
 				if (GetFPSProjectileClass())
 				{
-					GetWorld()->SpawnActor<AFPSProjectile>(
+					// 1. Begin Deferred Spawn (Returns pointer, but pauses execution)
+					AFPSProjectile* Projectile = GetWorld()->SpawnActorDeferred<AFPSProjectile>(
 						GetFPSProjectileClass(),
-						MuzzleLocation,
-						TargetRotation,
-						SpawnParams
+						FTransform(TargetRotation, MuzzleLocation),
+						GetOwner(),
+						Cast<APawn>(GetOwner()),
+						ESpawnActorCollisionHandlingMethod::AlwaysSpawn
 					);
+					
+					if (IsValid(Projectile))
+					{
+						// 2. Inject Runtime Data safely
+						Projectile->InitializeProjectile(GetWeaponDamage());
+        
+						// 3. Unpause and finalize the Actor
+						UGameplayStatics::FinishSpawningActor(Projectile, FTransform(TargetRotation, MuzzleLocation));
+					}
 				}
 				break;
 			}

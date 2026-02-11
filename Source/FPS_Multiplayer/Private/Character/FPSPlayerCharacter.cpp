@@ -57,6 +57,7 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	// We want the Animation to drive the camera movement 100%.
 	GetCharacterMovement()->bCrouchMaintainsBaseLocation = true;
 	GetCharacterMovement()->bOrientRotationToMovement = false; // Strafing behavior
+	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanWalk = true;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanJump = true;
@@ -219,47 +220,31 @@ void AFPSPlayerCharacter::OnWalkReleased()
 	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
 
 	// 2. Update State
-	SetGaitState(EGait::EG_Running); // Or EG_Walking, depending on your default
+	SetGaitState(EGait::EG_Running);
 }
 
 void AFPSPlayerCharacter::OnSprintPressed()
 {
-	// Block sprint if crouching (optional design choice)
-	if (LayerStates.Stance == EStance::ES_Crouching) 
-	{
-		UnCrouch(); // Or return; if you want crouch to block sprint
-	}
-
-	// Sprint-Out: If we are aiming, stop aiming to allow sprint
-	if (LayerStates.AimState == EAimState::EAS_ADS)
-	{
-		SetAimState(EAimState::EAS_None);
-	}
-
-	// 1. Update Speed Locally (Prediction)
-	GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
-
-	// 2. Update State
-	SetGaitState(EGait::EG_Sprinting);
+	bWantsToSprint = true; 
+	TryStartSprinting();
 }
-
 void AFPSPlayerCharacter::OnSprintReleased()
 {
-	// 1. Restore Speed Locally
-	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
-
-	// 2. Update State
-	SetGaitState(EGait::EG_Running); // Or EG_Walking, depending on your default
+	bWantsToSprint = false; 
+    
+	// If we are currently sprinting, stop.
+	if (LayerStates.Gait == EGait::EG_Sprinting)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+		SetGaitState(EGait::EG_Running);
+	}
 }
 
 void AFPSPlayerCharacter::OnCrouchPressed()
 {
-	if (!GetCharacterMovement()->IsCrouching())
+	if (CanCrouch())
 	{
-		if (!GetCharacterMovement()->IsFalling())
-		{
-			Crouch();
-		}
+		Crouch();
 	}
 }
 
@@ -288,31 +273,53 @@ void AFPSPlayerCharacter::OnEndCrouch(float HeightAdjust, float ScaledHeightAdju
 
 void AFPSPlayerCharacter::OnFirePressed()
 {
-	CombatComponent->StartFire();
+	// 1. INTERRUPT: Sprint-Out
+	// If we are sprinting, force the state to Running immediately.
+	StopSprinting(); // 1. Handle Interrupts
+
+	// 2. PERMISSION
+	// Now that Gait is 'Running', CanFire() will pass (assuming we have ammo).
+	if (CanFire())
+	{
+		CombatComponent->StartFire();
+	}
 }
 
 void AFPSPlayerCharacter::OnFireReleased()
 {
 	CombatComponent->StopFire();
+	if (bWantsToSprint) TryStartSprinting(); // Resume!
 }
 
 void AFPSPlayerCharacter::OnReloadPressed()
 {
-	CombatComponent->Reload();
+	// 1. INTERRUPT: Sprint-Out
+	// If we are sprinting, force the state to Running immediately.
+	StopSprinting(); // 1. Handle Interrupts
+    
+	// 2. PERMISSION
+	if (CanReload())
+	{
+		CombatComponent->Reload();
+	}
 }
 
 void AFPSPlayerCharacter::OnAimPressed()
 {
-	if (!IsValid(CombatComponent->GetEquippedWeapon())) return;
+	// 1. INTERRUPT: Sprint-Out
+	// If we are sprinting, force the state to Running immediately.
+	StopSprinting(); // 1. Handle Interrupts
 	
-	SetAimState(EAimState::EAS_ADS);
+	if (CanAim())
+	{
+		SetAimState(EAimState::EAS_ADS);
+	}
 }
 
 void AFPSPlayerCharacter::OnAimReleased()
 {
-	if (!IsValid(CombatComponent->GetEquippedWeapon())) return;
-	
 	SetAimState(EAimState::EAS_None);
+	if (bWantsToSprint) TryStartSprinting(); // Resume!
 }
 
 void AFPSPlayerCharacter::SetAimState(EAimState NewState)
@@ -360,16 +367,16 @@ void AFPSPlayerCharacter::Server_SetGaitState_Implementation(EGait NewState)
 	// Server updates authoritative copy
 	LayerStates.Gait = NewState;
     
-	// Server must also update the physical movement speed to prevent rubber-banding
-	if (NewState == EGait::EG_Walking)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
-	}
-	else if (NewState == EGait::EG_Sprinting)
+	// CRITICAL: This MUST match Client's UpdateMovementSettings logic exactly!
+	if (NewState == EGait::EG_Sprinting)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
 	}
-	else
+	else if (NewState == EGait::EG_Walking)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	}
+	else // Running
 	{
 		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
 	}
@@ -384,11 +391,11 @@ void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewD
 	GetCharacterMovement()->MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;
 
 	// 2. Apply the correct speed based on current state
-	if (LayerStates.Gait == EGait::EG_Walking)
+	if (GetGaitState() == EGait::EG_Walking)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 	}
-	else if (LayerStates.Gait == EGait::EG_Sprinting)
+	else if (GetGaitState() == EGait::EG_Sprinting)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
 	}
@@ -401,4 +408,89 @@ void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewD
 void AFPSPlayerCharacter::SetOverlayState(EOverlayState NewState)
 {
 	LayerStates.OverlayState = NewState;
+}
+
+// =========================================================================
+//                        STATE GATEKEEPERS (Rulesets)
+// =========================================================================
+
+bool AFPSPlayerCharacter::CanSprint() const
+{
+	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (GetCharacterMovement()->IsFalling()) return false;
+	return true;
+}
+
+bool AFPSPlayerCharacter::CanCrouch() const
+{
+	if (GetCharacterMovement()->IsFalling()) return false;
+	return Super::CanCrouch();
+}
+
+bool AFPSPlayerCharacter::CanAim() const
+{
+	// Safety First: If the component is missing, we definitely can't aim.
+	if (!GetCombatComponent()) return false;
+	
+	// STRICT RULE: Cannot aim if sprinting.
+	if (LayerStates.Gait == EGait::EG_Sprinting) return false;
+	
+	if (GetCombatComponent()->GetEquippedWeapon() == nullptr) return false;
+	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	return true;
+}
+
+bool AFPSPlayerCharacter::CanFire() const
+{
+	// Safety First: If the component is missing, we definitely can't fire.
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return false;
+	
+	// STRICT RULE: Cannot fire if sprinting.
+	// Use the LayerState (Replicated), not the Component state, to ensure client/server agree.
+	if (LayerStates.Gait == EGait::EG_Sprinting) return false;
+	
+	if (GetCombatComponent()->GetEquippedWeapon() == nullptr) return false;
+	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (GetCombatComponent()->GetEquippedWeapon()->GetCurrentClipAmmo() <= 0) return false;
+	return true;
+}
+
+bool AFPSPlayerCharacter::CanReload() const
+{
+	// Safety First: If the component is missing, we definitely can't reload.
+	if (!GetCombatComponent()) return false;
+	
+	// STRICT RULE: Cannot reload if sprinting.
+	if (LayerStates.Gait == EGait::EG_Sprinting) return false;
+	
+	if (GetCombatComponent()->GetEquippedWeapon() == nullptr) return false;
+	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (GetCombatComponent()->GetEquippedWeapon()->GetCurrentClipAmmo() >= GetCombatComponent()->GetEquippedWeapon()->GetMaxClipAmmo()) return false;
+	if (GetCombatComponent()->GetCarriedAmmo() <= 0) return false;
+	if (GetCharacterMovement()->IsFalling()) return false;
+	return true;
+}
+
+void AFPSPlayerCharacter::StopSprinting()
+{
+	if (LayerStates.Gait == EGait::EG_Sprinting)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+		SetGaitState(EGait::EG_Running);
+	}
+}
+
+// =========================================================================
+//                       HELPER FUNCTIONS
+// =========================================================================
+
+void AFPSPlayerCharacter::TryStartSprinting()
+{
+	// Local Check: Do we want to sprint? Are we allowed to?
+	if (bWantsToSprint && CanSprint()) 
+	{
+		// EXECUTE (Prediction)
+		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+		SetGaitState(EGait::EG_Sprinting); // This calls Server RPC internally!
+	}
 }

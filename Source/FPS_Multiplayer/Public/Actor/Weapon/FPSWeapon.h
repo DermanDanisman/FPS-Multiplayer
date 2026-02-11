@@ -104,8 +104,8 @@ public:
     FORCEINLINE bool IsAutomatic() const { return WeaponData ? WeaponData->bIsAutomatic : false; }
     FORCEINLINE int32 GetMaxClipAmmo() const { return WeaponData ? WeaponData->MaxClipAmmo : 30; }
     FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
-	FORCEINLINE float GetDamage() const { return WeaponData ? WeaponData->Damage : 100.f; }
-    FORCEINLINE float GetRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
+	FORCEINLINE float GetWeaponDamage() const { return WeaponData ? WeaponData->Damage : 100.f; }
+    FORCEINLINE float GetWeaponRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
 	FORCEINLINE TSubclassOf<UCameraShakeBase> GetFiringCameraShake() const { return WeaponData ? WeaponData->FireCameraShake : nullptr; }
 	FORCEINLINE TSubclassOf<AFPSProjectile> GetFPSProjectileClass() const { return WeaponData ? WeaponData->ProjectileClass : nullptr;}
     

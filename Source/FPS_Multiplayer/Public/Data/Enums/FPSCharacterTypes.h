@@ -58,6 +58,7 @@ UENUM(BlueprintType)
 enum class ECombatState : uint8
 {
 	ECS_Unoccupied      UMETA(DisplayName = "Unoccupied"), // Can Fire
+	ECS_Firing          UMETA(DisplayName = "Firing"), // Currently Firing
 	ECS_Reloading       UMETA(DisplayName = "Reloading"),  // Cannot Fire
 	ECS_ThrowingGrenade UMETA(DisplayName = "Throwing Grenade"),
 	ECS_SwappingWeapons UMETA(DisplayName = "Swapping Weapons")

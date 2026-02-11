@@ -9,6 +9,11 @@
 class UProjectileMovementComponent;
 class USphereComponent;
 
+/**
+ * @class AFPSProjectile
+ * @brief Base class for physical projectiles (Rockets, slow-moving bullets).
+ * Relies on the spawning weapon to initialize its damage and properties.
+ */
 UCLASS()
 class FPS_MULTIPLAYER_API AFPSProjectile : public AActor
 {
@@ -17,12 +22,20 @@ class FPS_MULTIPLAYER_API AFPSProjectile : public AActor
 public:
 
 	AFPSProjectile();
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+	
+	/**
+	 * Called by the Weapon immediately after spawning the projectile.
+	 * Passes necessary combat stats to the bullet.
+	 */
+	void InitializeProjectile(float InDamage);
 
 protected:
 
 	virtual void BeginPlay() override;
 	
-	/** * Called when the collision sphere hits something.
+	/** 
+	 * Called when the collision sphere hits something.
 	 * Only runs on the Server if bReplicates is true and movement is replicated.
 	 */
 	UFUNCTION()
@@ -37,8 +50,9 @@ protected:
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UProjectileMovementComponent> ProjectileMovement;
 	
-	// Assign in Blueprint (e.g., 20.0f)
-	// It must match hit scans damage amount. If we are to have different types of projectiles that do various amounts of damage, hit scan logic must follow it.
-	UPROPERTY(EditDefaultsOnly)
-	float Damage = 20.f;
+	// --- STATE ---
+    
+	/** The damage this projectile will deal upon impact. Set by the Weapon. */
+	UPROPERTY(Replicated)
+	float Damage = 0.f;
 };

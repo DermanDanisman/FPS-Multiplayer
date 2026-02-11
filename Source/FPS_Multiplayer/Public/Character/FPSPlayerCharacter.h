@@ -46,9 +46,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
 	FORCEINLINE FCharacterLayerStates GetLayerStates() const { return LayerStates; }
 	
+	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	FORCEINLINE EGait GetGaitState() const { return LayerStates.Gait; }
+	
+	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	FORCEINLINE EOverlayState GetOverlayState() const { return LayerStates.OverlayState; }
+	
+	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	FORCEINLINE EAimState GetAimState() const { return LayerStates.AimState; }
+	
 	// =========================================================================
 	//                        SETTER FUNCTIONS
 	// =========================================================================
+	
+	// Helper to change Gait state (Handles Local Prediction + RPC)
+	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
+	void SetGaitState(EGait NewState);
 	
 	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
 	void SetOverlayState(EOverlayState NewState);
@@ -56,10 +69,6 @@ public:
 	// Helper to change state (Handles Local Prediction + RPC)
 	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
 	void SetAimState(EAimState NewState);
-	
-	// Helper to change Gait state (Handles Local Prediction + RPC)
-	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
-	void SetGaitState(EGait NewState);
 
 protected:
 
@@ -125,7 +134,7 @@ protected:
 	
 	void OnWalkPressed();
 	void OnWalkReleased();
-	
+
 	void OnSprintPressed();
 	void OnSprintReleased();
 	
@@ -145,13 +154,39 @@ protected:
 	void OnInteractedPressed(const FInputActionValue& Value);
 	
 	// =========================================================================
+	//                        STATE GATEKEEPERS (Rulesets)
+	// =========================================================================
+    
+	/** Returns true if the player is legally allowed to sprint. */
+	bool CanSprint() const;
+	
+	/** Returns true if the player is legally allowed to crouch. */
+	virtual bool CanCrouch() const override;
+    
+	/** Returns true if the player is legally allowed to aim. */
+	bool CanAim() const;
+    
+	/** Returns true if the weapon and player states allow firing. */
+	bool CanFire() const;
+    
+	/** Returns true if the weapon and player states allow reloading. */
+	bool CanReload() const;
+	
+	/**
+	 * Forcefully stops sprinting and resets movement speed.
+	 * Called when performing actions that block sprinting (Firing, Reloading).
+	 */
+	void StopSprinting();
+
+	// =========================================================================
 	//                       SERVER RPCs
 	// =========================================================================
-	UFUNCTION(Server, Reliable)
-	void Server_SetAimState(EAimState NewState);
-
+	
 	UFUNCTION(Server, Reliable)
 	void Server_SetGaitState(EGait NewState);
+	
+	UFUNCTION(Server, Reliable)
+	void Server_SetAimState(EAimState NewState);
 	
 	UPROPERTY(Replicated)
 	FCharacterLayerStates LayerStates;
@@ -179,4 +214,12 @@ private:
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
 	float SprintSpeed = 600.f;
+	
+	// =========================================================================
+	//                       HELPER FUNCTIONS & VARIABLES
+	// =========================================================================
+	
+	bool bWantsToSprint = false;
+	
+	void TryStartSprinting();
 };
