@@ -23,8 +23,6 @@ UFPSCombatComponent::UFPSCombatComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	
-	// Correct Initialization for Components.
-	// "SetReplicates(true)" causes crashes in Constructors. This is the safe alternative.
 	SetIsReplicatedByDefault(true);
 }
 
@@ -42,6 +40,10 @@ void UFPSCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
 }
+
+// =========================================================================
+//                        WEAPON HANDLING
+// =========================================================================
 
 void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 {
@@ -108,7 +110,6 @@ void UFPSCombatComponent::Server_EquipWeapon_Implementation(AFPSWeapon* WeaponTo
 	EquipWeapon(WeaponToEquip);
 }
 
-// --- REPLICATION NOTIFICATION (Client Side) ---
 void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 {
 	// --- CLIENT VISUALS ---
@@ -153,63 +154,15 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 	}
 }
 
-void UFPSCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
-{
-	// Get Viewport Size
-	FVector2D ViewportSize = FVector2D::ZeroVector;
-	if (GEngine && GEngine->GameViewport)
-	{
-		GEngine->GameViewport->GetViewportSize(ViewportSize);
-	}
-	
-	// Crosshair is center of screen
-	const FVector2D CrosshairLocation(ViewportSize.X * 0.5f, ViewportSize.Y * 0.5f); // ViewportSize.X / 2.f, ViewportSize.Y / 2.f
-	FVector CrosshairWorldPosition;
-	FVector CrosshairWorldDirection;
-
-	const ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	if (!OwnerCharacter) return;
-
-	const APlayerController* OwnerPlayerController = Cast<APlayerController>(OwnerCharacter->GetController());
-	if (!OwnerPlayerController) return;
-	
-	// Project 2D Screen to 3D World
-	const bool bScreenToWorld = UGameplayStatics::DeprojectScreenToWorld(
-		OwnerPlayerController,
-		CrosshairLocation,
-		CrosshairWorldPosition,
-		CrosshairWorldDirection
-	);
-	
-	if (bScreenToWorld)
-	{
-		// Start trace slightly in front of camera to avoid hitting self
-		FVector TraceStart = CrosshairWorldPosition;
-		FVector TraceEnd = CrosshairWorldDirection * EquippedWeapon->GetWeaponData()->Range;
-		
-		GetWorld()->LineTraceSingleByChannel(
-			TraceHitResult,
-			TraceStart, 
-			TraceEnd,
-			ECC_Visibility
-		);
-		
-		if (!TraceHitResult.bBlockingHit)
-		{
-			TraceHitResult.ImpactPoint = TraceEnd;
-			TraceHitResult.TraceEnd = TraceEnd; // Ensure we always have a valid target point
-		}
-	}
-}
+// =========================================================================
+//                        FIRING LOGIC
+// =========================================================================
 
 void UFPSCombatComponent::StartFire()
 {
 	if (!EquippedWeapon) return;
-    
 	bFireButtonPressed = true;
-
-	// Try to fire the first shot immediately
-	Fire();
+	Fire(); // Fire first shot immediately
 }
 
 void UFPSCombatComponent::StopFire()
@@ -220,68 +173,116 @@ void UFPSCombatComponent::StopFire()
 
 void UFPSCombatComponent::Fire()
 {
-	// 1. CHECKS
+	// 1. GATES
 	if (!bFireButtonPressed) return;
 	if (!EquippedWeapon) return;
-    
-	// Use your new State Enum!
 	if (CombatState != ECombatState::ECS_Unoccupied) return; 
     
-	// Check Ammo
+	// 2. AMMO CHECK
 	if (EquippedWeapon->GetCurrentClipAmmo() <= 0) 
 	{
-		// Out of ammo? Stop the timer. 
-		// Later we can auto-reload here.
+		// Empty Click Sound could go here
 		StopFire(); 
+		// Optional: Auto-Reload
+		// Reload(); 
 		return;
 	}
 
-	// 2. TRACE (Find Target)
+	// 3. EXECUTION
 	FHitResult HitResult;
 	TraceUnderCrosshairs(HitResult);
     
-	// If we hit nothing (sky), aim at the end of the trace
 	FVector HitTarget = HitResult.bBlockingHit ? HitResult.ImpactPoint : HitResult.TraceEnd;
-
-	// 3. SHOOT
 	EquippedWeapon->Fire(HitTarget);
 
-	// 4. AUTOMATIC FIRE LOOP
+	// 4. AUTOMATIC LOOP
 	if (EquippedWeapon->IsAutomatic())
 	{
 		GetWorld()->GetTimerManager().SetTimer(
-			FireTimerHandle, 
-			this, 
-			&ThisClass::Fire, 
-			EquippedWeapon->GetFireDelay(), 
-			false // Not looping, we re-call it recursively to maintain control
+		   FireTimerHandle, 
+		   this, 
+		   &ThisClass::Fire, 
+		   EquippedWeapon->GetFireDelay(), 
+		   false 
 		);
 	}
 }
 
+void UFPSCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
+{
+	// Safe Viewport Access
+	FVector2D ViewportSize = FVector2D::ZeroVector;
+	if (GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->GetViewportSize(ViewportSize);
+	}
+	
+	// Center of Screen
+	const FVector2D CrosshairLocation(ViewportSize.X * 0.5f, ViewportSize.Y * 0.5f); // ViewportSize.X / 2.f, ViewportSize.Y / 2.f
+	FVector CrosshairWorldPosition;
+	FVector CrosshairWorldDirection;
+
+	if (APlayerController* PC = Cast<APlayerController>(Cast<ACharacter>(GetOwner())->GetController()))
+	{
+		bool bScreenToWorld = UGameplayStatics::DeprojectScreenToWorld(
+		   PC,
+		   CrosshairLocation,
+		   CrosshairWorldPosition,
+		   CrosshairWorldDirection
+		);
+        
+		if (bScreenToWorld)
+		{
+			// Start slightly forward to avoid colliding with own capsule if running fast
+			FVector Start = CrosshairWorldPosition + (CrosshairWorldDirection * 30.f); 
+			FVector End = Start + (CrosshairWorldDirection * EquippedWeapon->GetRange());
+           
+			GetWorld()->LineTraceSingleByChannel(
+			   TraceHitResult,
+			   Start, 
+			   End,
+			   ECC_Visibility
+			);
+           
+			if (!TraceHitResult.bBlockingHit)
+			{
+				TraceHitResult.ImpactPoint = End;
+				TraceHitResult.TraceEnd = End;
+			}
+		}
+	}
+}
+
+// =========================================================================
+//                        RELOAD LOGIC
+// =========================================================================
+
 void UFPSCombatComponent::Reload()
 {
-	// 1. Safety Checks
+	// Client Side Checks (Save Bandwidth)
+	// 1. Safety & State Checks
 	if (!EquippedWeapon) return;
-    
-	// 2. State Check: Don't reload if already reloading or busy
 	if (CombatState != ECombatState::ECS_Unoccupied) return;
-
-	// 3. Ammo Check: Don't reload if mag is full
+    
+	// 2. Ammo Checks
+	// Don't reload if full
 	if (EquippedWeapon->GetCurrentClipAmmo() >= EquippedWeapon->GetMaxClipAmmo()) return;
-
-	// 4. Backpack Check: Don't reload if we have no bullets left
+	// Don't reload if empty reserve
 	if (CarriedAmmo <= 0) return;
 
-	// 5. Proceed
+	// 3. Execute
 	Server_Reload();
 }
 
 void UFPSCombatComponent::Server_Reload_Implementation()
 {
-	// 1. Set Component State (The Brain)
+	// Server Side Checks (Safety)
+	if (!EquippedWeapon) return;
+    
 	CombatState = ECombatState::ECS_Reloading;
-	if (EquippedWeapon && EquippedWeapon->GetReloadMontage())
+    
+	// Trigger Visuals for Everyone
+	if (EquippedWeapon->GetReloadMontage())
 	{
 		Multicast_Reload();
 	}
@@ -290,9 +291,12 @@ void UFPSCombatComponent::Server_Reload_Implementation()
 void UFPSCombatComponent::Multicast_Reload_Implementation()
 {
 	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	if (OwnerCharacter && EquippedWeapon->GetReloadMontage())
+	if (OwnerCharacter)
 	{
-		OwnerCharacter->GetMesh()->GetAnimInstance()->Montage_Play(EquippedWeapon->GetReloadMontage());
+		if (EquippedWeapon && EquippedWeapon->GetReloadMontage())
+		{
+			OwnerCharacter->GetMesh()->GetAnimInstance()->Montage_Play(EquippedWeapon->GetReloadMontage());
+		}
 	}
 }
 
@@ -304,11 +308,13 @@ void UFPSCombatComponent::FinishReloading()
     
 	// 2. STATE CHECK
 	// If we aren't actually reloading (maybe we got stunned?), stop.
+	// State Guard (Prevent cheating by calling FinishReloading without starting it)
 	if (CombatState != ECombatState::ECS_Reloading) return;
+	if (!EquippedWeapon) return;
     
 	if (!EquippedWeapon) return;
 
-	// 3. THE MATH (Server Only)
+	// 3. --- MATH --- (Server Only)
 	// Calculate how much space is in the mag
 	int32 RoomInMag = EquippedWeapon->GetMaxClipAmmo() - EquippedWeapon->GetCurrentClipAmmo();
     
@@ -319,12 +325,14 @@ void UFPSCombatComponent::FinishReloading()
 	EquippedWeapon->AddAmmo(AmountToReload);
 	CarriedAmmo -= AmountToReload; // This variable needs to be Replicated too!
     
-	// Reset State
+	// 4. --- RESET ---
 	CombatState = ECombatState::ECS_Unoccupied;
 }
 
 void UFPSCombatComponent::OnRep_CombatState(ECombatState PreviousCombatState)
 {
+	// Optional: Use this to update HUD state (Crosshair spread, etc.)
+	
 	const FString Prev = CombatStateToString(PreviousCombatState);
 	const FString Curr = CombatStateToString(CombatState);
 

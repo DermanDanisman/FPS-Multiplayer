@@ -131,6 +131,7 @@ protected:
 	EMovementDirectionMode MovementDirectionMode = EMovementDirectionMode::EMDM_Forward;
 
 	// --- STOP PREDICTION ---
+	
 	// Used to play specific "Plant and Stop" animations based on which way we were moving
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion|History")
 	FRotator LastVelocityRotation;
@@ -171,7 +172,8 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	FRotator HandRotation;
 
-	/** * Controls the interpolation speed for the Procedural Hand Transform (TInterpTo).
+	/**
+	 * Controls the interpolation speed for the Procedural Hand Transform (TInterpTo).
 	 * @usage Determines how "snappy" the sight alignment feels. 
 	 * @value Higher (20+) = Snappy/Instant alignment. 
 	 * @value Lower (10-) = Smooth/Floaty alignment (gun feels heavy).
@@ -211,7 +213,7 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|State")
 	int32 CurrentSightIndex = 0;
 	
-	// [NEW] The target transform we want to reach (Either Hip or ADS)
+	// The target transform we want to reach (Either Hip or ADS)
 	FTransform TargetHandTransform;
     
 	// Add this struct inside your Class or above it
@@ -261,6 +263,7 @@ protected:
 	// =========================================================================
 
 	// --- DIRECTION THRESHOLDS ---
+	
 	// Buffer determines how much "stickiness" the direction switch has to prevent flickering.
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Thresholds")
 	float Buffer = 5.f;
@@ -272,12 +275,14 @@ protected:
 	float DirectionThresholdMin = -90.0f;
 	
 	// --- AIM CONFIGURATIONS ---
+	
 	// Higher = Snappier. Lower = Smoother (but "laggier"). 
 	// Start with 15.0f.
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|AimOffset")
 	float PitchPerBoneInterpSpeed = 15.0f;
 	
 	// --- SKELETON CONFIGURATION ---
+	
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Skeleton")
 	FName HandBoneName = FName("hand_r");
 
@@ -285,6 +290,7 @@ protected:
 	FName HeadBoneName = FName("head");
 
 	// --- SPEED CONFIGURATION ---
+	
 	// Defines the speed at which the character is considered "Walking" (Gait 1.0)
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Dynamic Speeds")
 	float WalkSpeed = 150.f;
@@ -302,6 +308,7 @@ protected:
 	
 private:
 	// --- INTERNAL FUNCTIONS ---
+	
 	void UpdateReferences();
 	void CalculateEssentialData();
 	void CalculateLocomotionDirection();
@@ -310,6 +317,7 @@ private:
 	void CalculatePlayRate();
 	void CalculatePitchValuePerBone();
 	void CalculateAimOffset();
+	
 	/**
 	 * Calculates the precise hand offsets needed to align the weapon sights with the camera.
 	 * This is an EVENT-BASED calculation (runs only when weapon changes), not per-frame.

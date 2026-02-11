@@ -67,6 +67,22 @@ void AFPSPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	if (IsLocallyControlled())
+	{
+		APlayerController* PC = GetController<APlayerController>();
+		if (PC)
+		{
+			UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer());
+			if (Subsystem)
+			{
+				if (PlayerCharacterMappingContext)
+				{
+					Subsystem->AddMappingContext(PlayerCharacterMappingContext, 0);
+				}
+			}
+		}
+	}
+	
 	/*if (IsLocallyControlled())
 	{
 		// 1. Setup Main Mesh (Visuals) - HIDE HEAD
@@ -126,6 +142,11 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ThisClass::OnCrouchReleased);
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ThisClass::OnCrouchReleased);
 		
+		// Walk (Left-Alt)
+		EnhancedInputComponent->BindAction(WalkAction, ETriggerEvent::Triggered, this, &ThisClass::OnWalkPressed);
+		EnhancedInputComponent->BindAction(WalkAction, ETriggerEvent::Completed, this, &ThisClass::OnWalkReleased);
+		EnhancedInputComponent->BindAction(WalkAction, ETriggerEvent::Canceled, this, &ThisClass::OnWalkReleased);
+		
 		// Sprint (Left-Shift)
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Triggered, this, &ThisClass::OnSprintPressed);
 		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &ThisClass::OnSprintReleased);
@@ -183,20 +204,22 @@ void AFPSPlayerCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
-void AFPSPlayerCharacter::OnCrouchPressed()
+void AFPSPlayerCharacter::OnWalkPressed()
 {
-	if (!GetCharacterMovement()->IsCrouching())
-	{
-		if (!GetCharacterMovement()->IsFalling())
-		{
-			Crouch();
-		}
-	}
+	// 1. Update Speed Locally (Prediction)
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+	// 2. Update State
+	SetGaitState(EGait::EG_Walking);
 }
 
-void AFPSPlayerCharacter::OnCrouchReleased()
+void AFPSPlayerCharacter::OnWalkReleased()
 {
-	UnCrouch();
+	// 1. Restore Speed Locally
+	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+
+	// 2. Update State
+	SetGaitState(EGait::EG_Running); // Or EG_Walking, depending on your default
 }
 
 void AFPSPlayerCharacter::OnSprintPressed()
@@ -227,6 +250,22 @@ void AFPSPlayerCharacter::OnSprintReleased()
 
 	// 2. Update State
 	SetGaitState(EGait::EG_Running); // Or EG_Walking, depending on your default
+}
+
+void AFPSPlayerCharacter::OnCrouchPressed()
+{
+	if (!GetCharacterMovement()->IsCrouching())
+	{
+		if (!GetCharacterMovement()->IsFalling())
+		{
+			Crouch();
+		}
+	}
+}
+
+void AFPSPlayerCharacter::OnCrouchReleased()
+{
+	UnCrouch();
 }
 
 void AFPSPlayerCharacter::OnStartCrouch(float HeightAdjust, float ScaledHeightAdjust)
@@ -322,7 +361,11 @@ void AFPSPlayerCharacter::Server_SetGaitState_Implementation(EGait NewState)
 	LayerStates.Gait = NewState;
     
 	// Server must also update the physical movement speed to prevent rubber-banding
-	if (NewState == EGait::EG_Sprinting)
+	if (NewState == EGait::EG_Walking)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	}
+	else if (NewState == EGait::EG_Sprinting)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
 	}
@@ -336,11 +379,16 @@ void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewD
 {
 	// 1. Cache the values so we can swap back and forth
 	BaseWalkSpeed = NewData.MaxBaseSpeed;
+	WalkSpeed = NewData.AnimWalkRefSpeed;
 	SprintSpeed = NewData.AnimSprintRefSpeed; // Assumes this exists in your struct
 	GetCharacterMovement()->MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;
 
 	// 2. Apply the correct speed based on current state
-	if (LayerStates.Gait == EGait::EG_Sprinting)
+	if (LayerStates.Gait == EGait::EG_Walking)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	}
+	else if (LayerStates.Gait == EGait::EG_Sprinting)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
 	}

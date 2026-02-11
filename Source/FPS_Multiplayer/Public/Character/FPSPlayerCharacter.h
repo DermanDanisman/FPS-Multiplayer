@@ -74,12 +74,18 @@ protected:
 	//                        ENHANCED INPUT CONFIGURATION
 	// =========================================================================
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	TObjectPtr<UInputMappingContext> PlayerCharacterMappingContext;
+	
 	// The specific actions
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
 	TObjectPtr<UInputAction> MoveAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
 	TObjectPtr<UInputAction> LookAction;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	TObjectPtr<UInputAction> WalkAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
 	TObjectPtr<UInputAction> JumpAction;
@@ -117,11 +123,14 @@ protected:
 	// Called when Mouse moves
 	void Look(const FInputActionValue& Value);
 	
-	void OnCrouchPressed();
-	void OnCrouchReleased(); // Optional: If you want "Hold to Crouch"
+	void OnWalkPressed();
+	void OnWalkReleased();
 	
 	void OnSprintPressed();
 	void OnSprintReleased();
+	
+	void OnCrouchPressed();
+	void OnCrouchReleased(); // Optional: If you want "Hold to Crouch"
 	
 	void OnFirePressed();
 	void OnFireReleased();
@@ -164,6 +173,9 @@ private:
 	// Cache these values from UpdateMovementSettings so we can swap between them
 	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
 	float BaseWalkSpeed = 300.f;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
+	float WalkSpeed = 150.f;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
 	float SprintSpeed = 600.f;

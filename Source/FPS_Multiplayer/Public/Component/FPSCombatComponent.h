@@ -12,101 +12,116 @@ class AFPSWeapon;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWeaponEquippedDelegate, AFPSWeapon*, NewWeapon);
 
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), PrioritizeCategories="CombatComponent")
+/**
+ * Handles all combat logic: Firing, Reloading, Ammo Management, and Weapon State.
+ * Acts as the "Brain" for the equipped weapon.
+ */
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), PrioritizeCategories="Combat")
 class FPS_MULTIPLAYER_API UFPSCombatComponent : public UActorComponent
 {
-	GENERATED_BODY()
-	
+    GENERATED_BODY()
+    
 public:
-	// Sets default values for this component's properties
-	UFPSCombatComponent();
-	friend AFPSPlayerCharacter;
-	
-	UPROPERTY(BlueprintAssignable, Category = "CombatComponent|Delegates")
-	FOnWeaponEquippedDelegate OnWeaponEquippedDelegate;
-	
-	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
-	FORCEINLINE AFPSWeapon* GetEquippedWeapon() { return EquippedWeapon; }
-	
-	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
-	FORCEINLINE ECombatState GetCombatState() const { return CombatState; }
-	
-	UFUNCTION(BlueprintPure, Category = "CombatComponent|Getters")
-	FORCEINLINE int32 GetCarriedAmmo() const { return CarriedAmmo; }
-	
-	/**
-	 * Main logic for equipping a weapon.
-	 * Replication handled
-	 */
-	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
-	void EquipWeapon(AFPSWeapon* WeaponToEquip);
-	
-	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
-	void StartFire();
-	
-	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
-	void StopFire();
-	
-	UFUNCTION(BlueprintCallable, Category = "CombatComponent")
-	void Reload();
-	
-	UFUNCTION(BlueprintCallable, Category="Combat")
-	void FinishReloading();
+    UFPSCombatComponent();
+    friend AFPSPlayerCharacter;
+    
+    // --- DELEGATES ---
+    UPROPERTY(BlueprintAssignable, Category = "Combat|Delegates")
+    FOnWeaponEquippedDelegate OnWeaponEquippedDelegate;
+    
+    // --- STATE GETTERS ---
+    UFUNCTION(BlueprintPure, Category = "Combat|State")
+    FORCEINLINE AFPSWeapon* GetEquippedWeapon() const { return EquippedWeapon; }
+    
+    UFUNCTION(BlueprintPure, Category = "Combat|State")
+    FORCEINLINE ECombatState GetCombatState() const { return CombatState; }
+    
+    UFUNCTION(BlueprintPure, Category = "Combat|State")
+    FORCEINLINE int32 GetCarriedAmmo() const { return CarriedAmmo; }
+    
+    // --- COMBAT ACTIONS (Input) ---
+    
+    /** 
+     * Handles the full logic of equipping a new weapon.
+     * Automatically routes to Server if called on Client.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Combat|Actions")
+    void EquipWeapon(AFPSWeapon* WeaponToEquip);
+    
+    /** Starts the firing sequence (Automatic or Single). */
+    UFUNCTION(BlueprintCallable, Category = "Combat|Actions")
+    void StartFire();
+    
+    /** Stops the firing sequence/timer. */
+    UFUNCTION(BlueprintCallable, Category = "Combat|Actions")
+    void StopFire();
+    
+    /** 
+     * Initiates the reload process. 
+     * Checks ammo, state, and magazine capacity before calling Server.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Combat|Actions")
+    void Reload();
+    
+    /** 
+     * Called via AnimNotify when the reload animation completes.
+     * Calculates final ammo math and resets state.
+     * @warning Must only execute on Server.
+     */
+    UFUNCTION(BlueprintCallable, Category="Combat|Internal")
+    void FinishReloading();
 
 protected:
-	// Called when the game starts
-	virtual void BeginPlay() override;
-	
-	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
-	
-	// --- RPCs (Remote Procedure Calls) ---
+    virtual void BeginPlay() override;
+    virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+    
+    // --- SERVER RPCs ---
 
-	/**
-	 * The Bridge between Client Input and Server Logic.
-	 * @param WeaponToEquip - The weapon the client wants to pick up.
-	 * - Server: Means "Run this function on the Server".
-	 * - Reliable: Means "This packet MUST arrive. Do not drop it." (Essential for gameplay actions).
-	 */
-	UFUNCTION(Server, Reliable)
-	void Server_EquipWeapon(AFPSWeapon* WeaponToEquip);
+    UFUNCTION(Server, Reliable)
+    void Server_EquipWeapon(AFPSWeapon* WeaponToEquip);
 
-	UFUNCTION()
-	void OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon);
-	
-	UFUNCTION()
-	void OnRep_CombatState(ECombatState PreviousCombatState);
+    UFUNCTION(Server, Reliable)
+    void Server_Reload();
+    
+    // --- REPLICATION NOTIFIES ---
+
+    UFUNCTION()
+    void OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon);
+    
+    UFUNCTION()
+    void OnRep_CombatState(ECombatState PreviousCombatState);
+
+    // --- MULTICASTS (Visuals) ---
+    
+    /** Plays reload montage on all clients. */
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_Reload();
 
 private:
-	
-	// The Timer Function (Called repeatedly)
-	void Fire();
-	
-	UFUNCTION(Server, Reliable)
-	void Server_Reload();
-	
-	UFUNCTION(NetMulticast, Reliable)
-	void Multicast_Reload();
-	
-	// The Eyes (Raycast)
-	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
+    
+    // --- INTERNAL LOGIC ---
 
-	// Timer Handle for Automatic Fire
-	FTimerHandle FireTimerHandle;
+    /** The actual fire logic tick (Trace -> Ammo -> Weapon Fire). */
+    void Fire();
 
-	// Variable to track if button is held down
-	bool bFireButtonPressed;
-	
-	/* * [GAMEPLAY STATE]
-	 * Tracks the weapon currently in the player's hands.
-	 * Replication: COND_None (Replicates to Everyone).
-	 * Purpose: Everyone needs to see what gun I am holding.
-	 */
-	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
-	TObjectPtr<AFPSWeapon> EquippedWeapon;
-	
-	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
-	ECombatState CombatState;
-	
-	UPROPERTY(Replicated)
-	int32 CarriedAmmo = 120;
+    /** 
+     * Raycasts from the Camera center to finding the impact point.
+     * @param TraceHitResult - Output struct containing hit info.
+     */
+    void TraceUnderCrosshairs(FHitResult& TraceHitResult);
+
+    // --- INTERNAL STATE ---
+
+    FTimerHandle FireTimerHandle;
+    bool bFireButtonPressed;
+    
+    UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
+    TObjectPtr<AFPSWeapon> EquippedWeapon;
+    
+    UPROPERTY(ReplicatedUsing = OnRep_CombatState)
+    ECombatState CombatState;
+    
+    /** Total ammo in "Backpack" (Reserve). */
+    UPROPERTY(Replicated)
+    int32 CarriedAmmo = 120;
 };

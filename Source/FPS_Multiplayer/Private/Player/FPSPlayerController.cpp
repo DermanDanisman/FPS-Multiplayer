@@ -18,15 +18,7 @@ void AFPSPlayerController::OnPossess(APawn* InPawn)
 	
 	if (InPawn->IsLocallyControlled())
 	{
-		if (HUDWidgetClass)
-		{
-			if (!IsValid(HUDWidgetInstance))
-			{
-				HUDWidgetInstance = CreateWidget(this, HUDWidgetClass);
-			}
-
-			HUDWidgetInstance->AddToPlayerScreen();
-		}
+		
 	}
 }
 
@@ -43,6 +35,16 @@ void AFPSPlayerController::BeginPlay()
 		if (DefaultMappingContext)
 		{
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
+		}
+		
+		if (HUDWidgetClass)
+		{
+			if (!IsValid(HUDWidgetInstance))
+			{
+				HUDWidgetInstance = CreateWidget(this, HUDWidgetClass);
+			}
+
+			HUDWidgetInstance->AddToPlayerScreen();
 		}
 	}
 }

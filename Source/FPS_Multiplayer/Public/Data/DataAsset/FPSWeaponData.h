@@ -7,7 +7,8 @@
 #include "Engine/DataAsset.h"
 #include "FPSWeaponData.generated.h"
 
-// Forward Decls
+// Forward Declarations
+class AFPSProjectile;
 class USoundBase;
 class UParticleSystem;
 class UAnimMontage;
@@ -26,7 +27,7 @@ struct FWeaponMovementData
 	float MaxBaseSpeed = 600.f; // Standard "Run" speed
 	
 	UPROPERTY(EditAnywhere, Category = "Weapon|Movement Limits")
-	float MaxCrouchSpeed = 300.f;
+	float MaxCrouchSpeed = 200.f;
 
 	// --- ANIMATION REFERENCES (Stride Warping Math) ---
 	// How fast the character moves in the ANIMATION file.
@@ -48,6 +49,13 @@ enum EWeaponType
 	
 	EWT_Melee  UMETA(DisplayName = "Melee"),
 	EWR_Ranged UMETA(DisplayName = "Ranged")
+};
+
+UENUM(BlueprintType)
+enum class EWeaponFireType : uint8
+{
+	EWFT_HitScan    UMETA(DisplayName = "Hit Scan"),    // Instant laser (CoD)
+	EWFT_Projectile UMETA(DisplayName = "Projectile")   // Physics object (Battlefield/Halo)
 };
 
 /**
@@ -86,6 +94,13 @@ public:
     
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	int32 MaxClipAmmo = 30;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Ballistics")
+	EWeaponFireType FireType = EWeaponFireType::EWFT_HitScan;
+
+	/** Only used if FireType == Projectile */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Ballistics", meta=(EditCondition="FireType == EWeaponFireType::EWFT_Projectile"))
+	TSubclassOf<AFPSProjectile> ProjectileClass;
     
 	// --- ANIMATION & FX ---
 
@@ -95,10 +110,10 @@ public:
 	 * @note If your animation is Additive, ensure the Montage uses the correct Additive settings.
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
-	TObjectPtr<UAnimMontage> AimedFireMontage;
+	TObjectPtr<UAnimMontage> FireMontage;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
-	TObjectPtr<UAnimMontage> HipFireMontage;
+	TObjectPtr<UAnimMontage> AimedFireMontage;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> ReloadMontage;

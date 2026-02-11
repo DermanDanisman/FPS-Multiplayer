@@ -8,6 +8,7 @@
 #include "Interface/FPSInteractableInterface.h"
 #include "FPSWeapon.generated.h"
 
+// --- Forward Declarations ---
 class UWidgetComponent;
 class USphereComponent;
 
@@ -19,20 +20,30 @@ class USphereComponent;
 UENUM(BlueprintType)
 enum class EWeaponState : uint8
 {
-	// 0: State when the weapon is spawned in the world waiting for a player.
+	/** 0: State when the weapon is spawned in the world waiting for a player. */
 	EWS_Initial UMETA(DisplayName = "Idle"), 
 	
-	// 1: State when the weapon is currently held by a Character.
-	// Physics and Collision should be disabled here so it doesn't freak out while attached to the mesh.
+	/**
+	 * 1: State when the weapon is currently held by a Character.
+	 * Physics and Collision should be disabled here so it doesn't freak out while attached to the mesh.
+	 */
 	EWS_Equipped UMETA(DisplayName = "Equipped"), 
 	
-	// 2: State when the player throws the weapon.
-	// We will re-enable physics here so it bounces off walls/floors.
+	/** 
+	 * 2: State when the player throws the weapon.
+	 * We will re-enable physics here so it bounces off walls/floors.
+	 */
 	EWS_Dropped UMETA(DisplayName = "Dropped"), 
 	
 	EWS_MAX UMETA(DisplayName = "DefaultMAX")
 };
 
+/**
+ * @class AFPSWeapon
+ * @brief The base actor class for all weapons.
+ * * Handles visual representation (Mesh), Configuration (DataAsset), and execution of
+ * firing logic (FX, Ammo consumption).
+ */
 UCLASS(PrioritizeCategories = "Weapon")
 class FPS_MULTIPLAYER_API AFPSWeapon : public AActor, public IFPSInteractableInterface
 {
@@ -41,100 +52,129 @@ class FPS_MULTIPLAYER_API AFPSWeapon : public AActor, public IFPSInteractableInt
 public:
 	
 	AFPSWeapon();
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 	
 	// =========================================================================
-	//                        GETTER FUNCTIONS
+	//                        PUBLIC API (Combat)
 	// =========================================================================
+    
+	/**
+	 * Executes the firing logic.
+	 * 1. Updates Ammo (Prediction)
+	 * 2. Plays FX (Prediction)
+	 * 3. Calls Server to authoritative fire.
+	 * @param HitTarget - The world location the trace hit (calculated by Camera).
+	 */
+	void Fire(const FVector& HitTarget);
+    
+	/**
+	 * Adds ammo to the current magazine. Safe to call, handles clamping.
+	 * @note Should typically only be called on the Server.
+	 */
+	void AddAmmo(int32 AmountToAdd);
+    
+	/** Resets ammo to full capacity (e.g. on spawn). */
+	void SetInitialClipAmmo();
 	
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() { return WeaponMesh; }
+	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return WeaponMesh; }
 	
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE UWidgetComponent* GetInteractionWidget() const { return InteractionWidget; }
 	
+	// =========================================================================
+	//                        STATE MANAGEMENT
+	// =========================================================================
+
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Setters")
+	void SetWeaponState(const EWeaponState NewWeaponState);
+    
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE EWeaponState GetWeaponState() const { return WeaponState; }
 	
-	UFUNCTION(BlueprintPure, Category="Weapon|Getters")
-	FORCEINLINE UFPSWeaponData* GetWeaponData() const { return WeaponData; }
-	
-	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); } // Return the data if valid, otherwise return a default-constructed struct
-	
-	FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
-	
-	FORCEINLINE float GetFireDelay() const { return WeaponData ? WeaponData->FireDelay : 0.1f; }
-	FORCEINLINE bool IsAutomatic() const { return WeaponData ? WeaponData->bIsAutomatic : false; }
-	FORCEINLINE int32 GetMaxClipAmmo() const { return WeaponData ? WeaponData->MaxClipAmmo : 30; }
-	FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
-	FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
-	FORCEINLINE void SetInitialClipAmmo() { CurrentClipAmmo = GetMaxClipAmmo(); }
-	
-	FORCEINLINE FTransform GetHipFireOffset() const { return WeaponData ? WeaponData->HipFireOffset : FTransform().Identity; }
-	FORCEINLINE FVector GetRightHandEffectorLocation() const { return WeaponData ? WeaponData->RightHandEffectorLocation : FVector::ZeroVector; }
-	FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightHandJointTargetLocation : FVector::ZeroVector; }
-	FORCEINLINE FVector GetLeftHandEffectorLocation() const { return WeaponData ? WeaponData->LeftHandEffectorLocation : FVector::ZeroVector; }
-	FORCEINLINE FVector GetLeftHandJointTargetLocation() const { return WeaponData ? WeaponData->LeftHandJointTargetLocation : FVector::ZeroVector; }
+	// =========================================================================
+    //                        CONFIGURATION GETTERS (Data Asset Wrapper)
+    // =========================================================================
+    
+    UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
+    FORCEINLINE UFPSWeaponData* GetWeaponData() const { return WeaponData; }
+    
+    // --- Shortcuts to DataAsset properties for cleaner code elsewhere ---
+    FORCEINLINE float GetFireDelay() const { return WeaponData ? WeaponData->FireDelay : 0.1f; }
+    FORCEINLINE bool IsAutomatic() const { return WeaponData ? WeaponData->bIsAutomatic : false; }
+    FORCEINLINE int32 GetMaxClipAmmo() const { return WeaponData ? WeaponData->MaxClipAmmo : 30; }
+    FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
+	FORCEINLINE float GetDamage() const { return WeaponData ? WeaponData->Damage : 100.f; }
+    FORCEINLINE float GetRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
+	FORCEINLINE TSubclassOf<UCameraShakeBase> GetFiringCameraShake() const { return WeaponData ? WeaponData->FireCameraShake : nullptr; }
+	FORCEINLINE TSubclassOf<AFPSProjectile> GetFPSProjectileClass() const { return WeaponData ? WeaponData->ProjectileClass : nullptr;}
+    
+    // --- Visuals & IK ---
+    FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
+	FORCEINLINE UAnimMontage* GetFireMontage() const { return WeaponData ? WeaponData->FireMontage : nullptr; }
+	FORCEINLINE UAnimMontage* GetAimedFireMontage() const { return WeaponData ? WeaponData->AimedFireMontage : nullptr; }
+    FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
+    FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); }
+    
+    // --- Procedural Aiming Getters ---
+    FORCEINLINE FTransform GetHipFireOffset() const { return WeaponData ? WeaponData->HipFireOffset : FTransform().Identity; }
+    FORCEINLINE float GetDistanceFromCamera() const { return WeaponData ? WeaponData->DistanceFromCamera : 0.f; }
+    FORCEINLINE float GetTimeToAim() const { return WeaponData ? WeaponData->TimeToAim : 0.25f; }
+    FORCEINLINE float GetTimeFromAim() const { return WeaponData ? WeaponData->TimeFromAim : 0.2f; }
+    
+    // --- IK Locators ---
+    FORCEINLINE FVector GetRightHandEffectorLocation() const { return WeaponData ? WeaponData->RightHandEffectorLocation : FVector::ZeroVector; }
+    FORCEINLINE FVector GetLeftHandEffectorLocation() const { return WeaponData ? WeaponData->LeftHandEffectorLocation : FVector::ZeroVector; }
+    FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightHandJointTargetLocation : FVector::ZeroVector; }
+    FORCEINLINE FVector GetLeftHandJointTargetLocation() const { return WeaponData ? WeaponData->LeftHandJointTargetLocation : FVector::ZeroVector; }
 
-	FORCEINLINE float GetTimeToAim() const { return WeaponData ? WeaponData->TimeToAim : 0.5f; }
-	FORCEINLINE float GetTimeFromAim() const { return WeaponData ? WeaponData->TimeFromAim : 0.2f; }
-	FORCEINLINE float GetDistanceFromCamera() const { return WeaponData ? WeaponData->DistanceFromCamera : 0.f; }
-	
-	FORCEINLINE FName GetOpticSocketName() const { return WeaponData ? WeaponData->OpticSocketName : FName(); }
-	FORCEINLINE FName GetFrontSightSocketName() const { return WeaponData ? WeaponData->FrontSightSocketName : FName(); }
-	FORCEINLINE FName GetRearSightSocketName() const { return WeaponData ? WeaponData->RearSightSocketName : FName(); }
-	FORCEINLINE FString GetOpticTagPrefix() const { return WeaponData ? WeaponData->OpticTagPrefix : FString(); }
-	FORCEINLINE FString GetFrontSightTagPrefix() const { return WeaponData ? WeaponData->FrontSightTagPrefix : FString(); }
-	FORCEINLINE FString GetRearSightTagPrefix() const { return WeaponData ? WeaponData->RearSightTagPrefix : FString(); }
-	
-	// =========================================================================
-	//                        SETTER FUNCTIONS
-	// =========================================================================
-	
-	UFUNCTION(BlueprintCallable, Category = "Weapon|Setters")
-	void SetWeaponState(const EWeaponState NewWeaponState);
-	
-	// =========================================================================
-	//                        IFPSInteractableInterface FUNCTIONS
-	// =========================================================================
-	
-	virtual void Interact_Implementation(APawn* InstigatorPawn) override;
-	virtual void OnFocusGained_Implementation(APawn* InstigatorPawn) override;
-	virtual void OnFocusLost_Implementation(APawn* InstigatorPawn) override;
-	
-	// Called by CombatComponent. Needs the HitTarget to know where the bullet goes!
-	void Fire(const FVector& HitTarget);
-	
-	void AddAmmo(int32 AmountToAdd);
+    // --- Sight Config ---
+    FORCEINLINE FName GetOpticSocketName() const { return WeaponData ? WeaponData->OpticSocketName : FName(); }
+    FORCEINLINE FName GetFrontSightSocketName() const { return WeaponData ? WeaponData->FrontSightSocketName : FName(); }
+    FORCEINLINE FName GetRearSightSocketName() const { return WeaponData ? WeaponData->RearSightSocketName : FName(); }
+    FORCEINLINE FString GetOpticTagPrefix() const { return WeaponData ? WeaponData->OpticTagPrefix : FString(); }
+    FORCEINLINE FString GetFrontSightTagPrefix() const { return WeaponData ? WeaponData->FrontSightTagPrefix : FString(); }
+    FORCEINLINE FString GetRearSightTagPrefix() const { return WeaponData ? WeaponData->RearSightTagPrefix : FString(); }
+
+    // =========================================================================
+    //                        INTERFACE IMPLEMENTATION
+    // =========================================================================
+    virtual void Interact_Implementation(APawn* InstigatorPawn) override;
+    virtual void OnFocusGained_Implementation(APawn* InstigatorPawn) override;
+    virtual void OnFocusLost_Implementation(APawn* InstigatorPawn) override;
 
 protected:
 	
 	virtual void BeginPlay() override;
-	
-	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
-	
+    
+	/** Called when WeaponState replicates to client. Updates physics/collision. */
 	UFUNCTION()
 	virtual void OnRep_WeaponState();
 	
 	// --- RPCs ---
+    
 	UFUNCTION(Server, Reliable)
 	void Server_Fire(const FVector& TraceHitTarget);
 
-	UFUNCTION(NetMulticast, Unreliable) // Unreliable is faster for FX!
+	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_Fire(const FVector& TraceHitTarget);
 
-	// Helper to play sounds/particles locally
+	/** 
+	 * Local helper to play Muzzle Flash, Sound, and Impact Particles.
+	 * @note Marked const as it spawns external actors/components, doesn't mutate Weapon state.
+	 */
 	void PlayFireEffects(const FVector& TraceHitTarget) const;
 
 private:
 	
-	/* * Main visual representation of the gun. 
+	/**
+	 * Main visual representation of the gun. 
 	 * Uses SkeletalMesh instead of StaticMesh because weapons need animations (reloading, bolt action).
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Weapon|Properties")
 	TObjectPtr<USkeletalMeshComponent> WeaponMesh;
 	
-	/*
+	/**
 	 * The 3D UI that appears above the gun ("Press E to Pickup").
 	 * By default, visibility is FALSE.
 	 * The Character class controls this visibility via Replication, not the Weapon itself.
@@ -146,7 +186,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Properties")
 	TObjectPtr<UFPSWeaponData> WeaponData;
 	
-	/*
+	/**
 	 * Tracks the current state (Initial, Equipped, Dropped).
 	 * VisibleAnywhere allows us to debug the state in the Editor details panel.
 	 */

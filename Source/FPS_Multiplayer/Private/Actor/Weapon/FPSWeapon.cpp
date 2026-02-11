@@ -2,6 +2,7 @@
 
 #include "Actor/Weapon/FPSWeapon.h"
 
+#include "Actor/Projectile/FPSProjectile.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCombatComponent.h"
 #include "Components/WidgetComponent.h"
@@ -38,30 +39,6 @@ AFPSWeapon::AFPSWeapon()
 	InteractionWidget->SetupAttachment(GetRootComponent());
 }
 
-void AFPSWeapon::Interact_Implementation(APawn* InstigatorPawn)
-{
-	AFPSPlayerCharacter* FPSPlayerCharacter = Cast<AFPSPlayerCharacter>(InstigatorPawn);
-	if (!IsValid(FPSPlayerCharacter)) return;
-	
-	FPSPlayerCharacter->GetCombatComponent()->EquipWeapon(this);
-}
-
-void AFPSWeapon::OnFocusGained_Implementation(APawn* InstigatorPawn)
-{
-	if (InteractionWidget)
-	{
-		InteractionWidget->SetVisibility(true);
-	}
-}
-
-void AFPSWeapon::OnFocusLost_Implementation(APawn* InstigatorPawn)
-{
-	if (InteractionWidget)
-	{
-		InteractionWidget->SetVisibility(false);
-	}
-}
-
 void AFPSWeapon::BeginPlay()
 {
 	Super::BeginPlay();
@@ -77,14 +54,19 @@ void AFPSWeapon::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& Out
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
-	// Register the variable for replication
 	DOREPLIFETIME(AFPSWeapon, WeaponState);
+	DOREPLIFETIME(AFPSWeapon, CurrentClipAmmo);
 }
+
+// =========================================================================
+//                        STATE MANAGEMENT
+// =========================================================================
 
 void AFPSWeapon::SetWeaponState(const EWeaponState NewWeaponState)
 {
 	WeaponState = NewWeaponState;
-	OnRep_WeaponState(); // Force the visual/physics update immediately on Server
+	// We call this manually on the Server so physics update immediately before replication happens
+	OnRep_WeaponState();
 }
 
 void AFPSWeapon::OnRep_WeaponState()
@@ -94,142 +76,250 @@ void AFPSWeapon::OnRep_WeaponState()
 	
 	switch (WeaponState)
 	{
-		case EWeaponState::EWS_Equipped:
-			// 1. Disable Physics (So it doesn't fall out of hand)
-			WeaponMesh->SetSimulatePhysics(false);
-			WeaponMesh->SetEnableGravity(false);
-			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	case EWeaponState::EWS_Equipped:
+		// 1. Disable Physics (So it doesn't fall out of hand)
+		GetWeaponMesh()->SetSimulatePhysics(false);
+		GetWeaponMesh()->SetEnableGravity(false);
+		GetWeaponMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	            
-			// 3. Hide Widget (Just in case)
-			if (InteractionWidget) InteractionWidget->SetVisibility(false);
-			break;
+		// 3. Hide Widget (Just in case)
+		if (InteractionWidget) InteractionWidget->SetVisibility(false);
+		break;
 
-		case EWeaponState::EWS_Dropped:
-			// 1. Enable Physics (So it falls to the floor)
-			WeaponMesh->SetSimulatePhysics(true);
-			WeaponMesh->SetEnableGravity(true);
-			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-
-			break;
-		default: ;
+	case EWeaponState::EWS_Dropped:
+		// 1. Enable Physics (So it falls to the floor)
+		GetWeaponMesh()->SetSimulatePhysics(true);
+		GetWeaponMesh()->SetEnableGravity(true);
+		GetWeaponMesh()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		break;
+		
+	case EWeaponState::EWS_Initial:
+		// Logic for spawning on map (e.g., enable a trigger box)
+		break;
+	default: ;
 	}
 }
 
-
+// =========================================================================
+//                        COMBAT LOGIC
+// =========================================================================
 
 void AFPSWeapon::Fire(const FVector& HitTarget)
 {
-	// 1. DEDUCT AMMO (Visual Prediction)
-	// We clamp it so UI updates instantly. Real authority is on Server.
-	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
-	
-	// 2. PLAY FX (Visual Prediction)
-	// Play sound/flash immediately on the client firing so it feels "Lag Free"
+	// 1. PREDICTION (Client/Server)
+	// Deduct Ammo locally so UI updates instantly without waiting for Server
+	if (CurrentClipAmmo > 0)
+	{
+		CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
+	}
+
+	// 2. VISUALS (Local)
+	// Play sound/flash immediately for the shooter
 	PlayFireEffects(HitTarget);
-	
-	// 3. TELL SERVER
+    
+	// 3. AUTHORITY (Network)
+	// Send request to Server to handle real math and replication
 	Server_Fire(HitTarget);
 }
 
 void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 {
-	// 1. VALIDATION (Anti-Cheat)
-	// If client lied about ammo, we stop them here.
-	if (CurrentClipAmmo < 0) return;
-	
-	// Deduct Actual Ammo
+	// 1. VALIDATION
+	if (CurrentClipAmmo <= 0 || !GetWeaponData()) return;
+    
+	// Deduct Actual Ammo (Authoritative)
 	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
 	
-	// 2. DEAL DAMAGE
-	// Only the Server can deal damage.
-	// We assume the TraceHitTarget is valid for now (in a real anti-cheat, we'd re-trace here).
-	/* UGameplayStatics::ApplyPointDamage(
-	   TargetActor, Damage, ...
-	);
-	*/
+	// --- 2. BALLISTICS FORK ---
+	switch (GetWeaponData()->FireType)
+	{
+		case EWeaponFireType::EWFT_HitScan:
+			{
+				// --- OPTION A: HITSCAN ---
+				// The bullet has already "arrived" at TraceHitTarget instantly.
+	            
+				// 1. Re-Verify the hit (Anti-Cheat / Latency Compensation would go here)
+				// For now, we trust the input vector or perform a short sanity check trace.
+	            
+				// Calculate line from Muzzle to where the Camera looked
+				FVector TraceStart = GetWeaponMesh()->GetSocketLocation(GetWeaponData()->MuzzleSocketName);
+				FHitResult HitResult;
+				
+				FCollisionQueryParams Params;
+				Params.AddIgnoredActor(this);
+				Params.AddIgnoredActor(GetOwner());
+	            
+				// Perform the authoritative damage trace
+				bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceHitTarget, ECC_Visibility, Params);
+	            
+				if (bHit && HitResult.GetActor())
+				{
+					UGameplayStatics::ApplyPointDamage(
+						HitResult.GetActor(),
+						GetDamage(),
+						(TraceHitTarget - TraceStart).GetSafeNormal(),
+						HitResult,
+						GetOwner()->GetInstigatorController(),
+						this,
+						UDamageType::StaticClass()
+					);
+				}
+				break;
+			}
 
-	// 3. REPLICATE FX
-	// Tell all other clients to play the sound/flash
+		case EWeaponFireType::EWFT_Projectile:
+			{
+				// --- OPTION B: PROJECTILE ---
+				// Spawn a physical actor. It will handle its own collision and damage later.
+	            
+				FVector MuzzleLocation = GetWeaponMesh()->GetSocketLocation(GetWeaponData()->MuzzleSocketName);
+				FRotator TargetRotation;
+
+				// Parallax Correction Math (The "Sideways Bullet" Fix)
+				float DistanceToTarget = FVector::Dist(MuzzleLocation, TraceHitTarget);
+
+				if (DistanceToTarget < 150.f) // If target is closer than 1.5 meters...
+				{
+					// Too close! Shoot straight out of the barrel to prevent sideways bullets.
+					TargetRotation = GetWeaponMesh()->GetSocketRotation(GetWeaponData()->MuzzleSocketName);
+				}
+				else
+				{
+					// Target is far. Triangulate normally.
+					// Calculate Rotation: Look from Muzzle -> Crosshair Target
+					TargetRotation = (TraceHitTarget - MuzzleLocation).Rotation();
+				}
+	            
+				FActorSpawnParameters SpawnParams;
+				SpawnParams.Owner = GetOwner();
+				SpawnParams.Instigator = Cast<APawn>(GetOwner());
+				SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+				if (GetFPSProjectileClass())
+				{
+					GetWorld()->SpawnActor<AFPSProjectile>(
+						GetFPSProjectileClass(),
+						MuzzleLocation,
+						TargetRotation,
+						SpawnParams
+					);
+				}
+				break;
+			}
+	}
+
+	// --- 3. REPLICATE FX ---
+	// Tell other clients to play sounds and flashes
 	Multicast_Fire(TraceHitTarget);
 }
 
 void AFPSWeapon::Multicast_Fire_Implementation(const FVector& TraceHitTarget)
 {
-	// Optimization: The owner (you) already played the effect in Fire().
-	// We don't want to play it twice (echo effect).
-	if (!GetOwner()) return;
-	
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	if (OwnerCharacter && OwnerCharacter->IsLocallyControlled()) return;
+	// Optimization: The Autonomous Proxy (Shooter) already played FX in Fire().
+	// We only want Simulated Proxies (Other Players) to execute this.
+	if (const ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner()))
+	{
+		if (OwnerCharacter->IsLocallyControlled()) return;
+	}
 
 	PlayFireEffects(TraceHitTarget);
 }
 
 void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 {
-	if (!WeaponData) return;
+    if (!GetWeaponData()) return;
 
-	// Muzzle Flash
-	if (WeaponData->MuzzleFlash)
-	{
-		UGameplayStatics::SpawnEmitterAttached(
-			WeaponData->MuzzleFlash, 
-			WeaponMesh, 
-			WeaponData->MuzzleSocketName,
-			FVector::ZeroVector, 
-			FRotator::ZeroRotator, 
-			EAttachLocation::SnapToTarget, 
-			true
-		);
-	}
+    // 1. Muzzle Flash
+    if (GetWeaponData()->MuzzleFlash)
+    {
+        UGameplayStatics::SpawnEmitterAttached(
+            GetWeaponData()->MuzzleFlash, 
+            GetWeaponMesh(), 
+            GetWeaponData()->MuzzleSocketName,
+            FVector::ZeroVector, 
+            FRotator::ZeroRotator, 
+            EAttachLocation::SnapToTarget, 
+            true
+        );
+    }
 
-	// Fire Sound
-	if (WeaponData->FireSound)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, WeaponData->FireSound, GetActorLocation());
-	}
+    // 2. Fire Sound
+    if (GetWeaponData()->FireSound)
+    {
+        UGameplayStatics::PlaySoundAtLocation(this, GetWeaponData()->FireSound, GetActorLocation());
+    }
     
-	// Impact Particles (Optional)
-	if (WeaponData->ImpactParticles)
-	{
-		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), WeaponData->ImpactParticles, TraceHitTarget);
-	}
+    // 3. Impact Particles
+    if (GetWeaponData()->ImpactParticles)
+    {
+        // Simple impact logic. Ideally, trace material to decide WHICH particle to play.
+        UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), GetWeaponData()->ImpactParticles, TraceHitTarget);
+    }
 	
-	UAnimMontage* MontageToPlay = WeaponData->HipFireMontage;
-
-	// Check if character is Aiming
-	if (ACharacter* Char = Cast<ACharacter>(GetOwner()))
+	// 4. Montages & Camera Shake
+	const ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (OwnerCharacter)
 	{
-		// You need to cast to your specific character to read the Aim State
-		if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(Char))
+		// Select Montage based on Aim State
+		UAnimMontage* MontageToPlay = GetFireMontage(); // Default to Hip Fire
+        
+		const AFPSPlayerCharacter* FPSCharacter = Cast<AFPSPlayerCharacter>(OwnerCharacter);
+		if (FPSCharacter)
 		{
-			if (FPSChar->GetLayerStates().AimState == EAimState::EAS_ADS)
+			if (FPSCharacter->GetLayerStates().AimState == EAimState::EAS_ADS && GetAimedFireMontage())
 			{
-				MontageToPlay = WeaponData->AimedFireMontage;
+				MontageToPlay = GetAimedFireMontage();
 			}
 		}
-        
-		// Play the selected montage
-		if (MontageToPlay)
+
+		// Play Selected Montage
+		if (MontageToPlay && OwnerCharacter->GetMesh()->GetAnimInstance())
 		{
-			Char->GetMesh()->GetAnimInstance()->Montage_Play(MontageToPlay);
+			OwnerCharacter->GetMesh()->GetAnimInstance()->Montage_Play(MontageToPlay);
 		}
-	}
-	
-	if (WeaponData->FireCameraShake)
-	{
-		ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-		if (OwnerCharacter->IsLocallyControlled())
+        
+		// Apply Camera Shake (Local Player Only)
+		if (OwnerCharacter->IsLocallyControlled() && GetFiringCameraShake())
 		{
 			if (APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController()))
 			{
-				PC->ClientStartCameraShake(WeaponData->FireCameraShake, 1.0f);
+				PC->ClientStartCameraShake(GetFiringCameraShake(), 1.0f);
 			}
 		}
 	}
 }
 
+// =========================================================================
+//                        HELPERS & INTERFACE
+// =========================================================================
+
 void AFPSWeapon::AddAmmo(int32 AmountToAdd)
 {
 	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo + AmountToAdd, 0, GetMaxClipAmmo());
+}
+
+void AFPSWeapon::SetInitialClipAmmo()
+{
+	CurrentClipAmmo = GetMaxClipAmmo();
+}
+
+void AFPSWeapon::Interact_Implementation(APawn* InstigatorPawn)
+{
+	if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(InstigatorPawn))
+	{
+		if (UFPSCombatComponent* Combat = FPSChar->GetCombatComponent())
+		{
+			Combat->EquipWeapon(this);
+		}
+	}
+}
+
+void AFPSWeapon::OnFocusGained_Implementation(APawn* InstigatorPawn)
+{
+	if (InteractionWidget) InteractionWidget->SetVisibility(true);
+}
+
+void AFPSWeapon::OnFocusLost_Implementation(APawn* InstigatorPawn)
+{
+	if (InteractionWidget) InteractionWidget->SetVisibility(false);
 }
