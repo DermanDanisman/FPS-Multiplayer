@@ -5,7 +5,9 @@
 #include "Actor/Projectile/FPSProjectile.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCombatComponent.h"
+#include "Component/FPSRecoilComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Curves/CurveVector.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 
@@ -33,6 +35,8 @@ AFPSWeapon::AFPSWeapon()
 	WeaponMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	// Start with NoCollision until we explicitly enable it (safety first).
 	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	
+	RecoilComponent = CreateDefaultSubobject<UFPSRecoilComponent>("RecoilComponent");
 	
 	// --- 3. Construct the UI ---
 	InteractionWidget = CreateDefaultSubobject<UWidgetComponent>("InteractionWidget");
@@ -110,7 +114,7 @@ void AFPSWeapon::Fire(const FVector& HitTarget)
 	// Deduct Ammo locally so UI updates instantly without waiting for Server
 	if (CurrentClipAmmo > 0)
 	{
-		CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
+		CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, WeaponData->MaxClipAmmo);
 	}
 
 	// 2. VISUALS (Local)
@@ -125,13 +129,13 @@ void AFPSWeapon::Fire(const FVector& HitTarget)
 void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 {
 	// 1. VALIDATION
-	if (CurrentClipAmmo <= 0 || !GetWeaponData()) return;
+	if (CurrentClipAmmo <= 0 || !WeaponData) return;
     
 	// Deduct Actual Ammo (Authoritative)
-	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, GetMaxClipAmmo());
+	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, WeaponData->MaxClipAmmo);
 	
 	// --- 2. BALLISTICS FORK ---
-	switch (GetWeaponData()->FireType)
+	switch (WeaponData->FireType)
 	{
 		case EWeaponFireType::EWFT_HitScan:
 			{
@@ -142,7 +146,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 				// For now, we trust the input vector or perform a short sanity check trace.
 	            
 				// Calculate line from Muzzle to where the Camera looked
-				FVector TraceStart = GetWeaponMesh()->GetSocketLocation(GetWeaponData()->MuzzleSocketName);
+				FVector TraceStart = GetWeaponMesh()->GetSocketLocation(WeaponData->MuzzleSocketName);
 				FHitResult HitResult;
 				
 				FCollisionQueryParams Params;
@@ -156,7 +160,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 				{
 					UGameplayStatics::ApplyPointDamage(
 						HitResult.GetActor(),
-						GetWeaponDamage(),
+						WeaponData->Damage,
 						(TraceHitTarget - TraceStart).GetSafeNormal(),
 						HitResult,
 						GetOwner()->GetInstigatorController(),
@@ -172,7 +176,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 				// --- OPTION B: PROJECTILE ---
 				// Spawn a physical actor. It will handle its own collision and damage later.
 	            
-				FVector MuzzleLocation = GetWeaponMesh()->GetSocketLocation(GetWeaponData()->MuzzleSocketName);
+				FVector MuzzleLocation = GetWeaponMesh()->GetSocketLocation(WeaponData->MuzzleSocketName);
 				FRotator TargetRotation;
 
 				// Parallax Correction Math (The "Sideways Bullet" Fix)
@@ -181,7 +185,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 				if (DistanceToTarget < 150.f) // If target is closer than 1.5 meters...
 				{
 					// Too close! Shoot straight out of the barrel to prevent sideways bullets.
-					TargetRotation = GetWeaponMesh()->GetSocketRotation(GetWeaponData()->MuzzleSocketName);
+					TargetRotation = GetWeaponMesh()->GetSocketRotation(WeaponData->MuzzleSocketName);
 				}
 				else
 				{
@@ -190,11 +194,11 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 					TargetRotation = (TraceHitTarget - MuzzleLocation).Rotation();
 				}
 
-				if (GetFPSProjectileClass())
+				if (WeaponData->ProjectileClass)
 				{
 					// 1. Begin Deferred Spawn (Returns pointer, but pauses execution)
 					AFPSProjectile* Projectile = GetWorld()->SpawnActorDeferred<AFPSProjectile>(
-						GetFPSProjectileClass(),
+						WeaponData->ProjectileClass,
 						FTransform(TargetRotation, MuzzleLocation),
 						GetOwner(),
 						Cast<APawn>(GetOwner()),
@@ -204,7 +208,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 					if (IsValid(Projectile))
 					{
 						// 2. Inject Runtime Data safely
-						Projectile->InitializeProjectile(GetWeaponDamage());
+						Projectile->InitializeProjectile(WeaponData->Damage);
         
 						// 3. Unpause and finalize the Actor
 						UGameplayStatics::FinishSpawningActor(Projectile, FTransform(TargetRotation, MuzzleLocation));
@@ -233,15 +237,15 @@ void AFPSWeapon::Multicast_Fire_Implementation(const FVector& TraceHitTarget)
 
 void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 {
-    if (!GetWeaponData()) return;
+    if (!WeaponData) return;
 
     // 1. Muzzle Flash
-    if (GetWeaponData()->MuzzleFlash)
+    if (WeaponData->MuzzleFlash)
     {
         UGameplayStatics::SpawnEmitterAttached(
-            GetWeaponData()->MuzzleFlash, 
+            WeaponData->MuzzleFlash, 
             GetWeaponMesh(), 
-            GetWeaponData()->MuzzleSocketName,
+            WeaponData->MuzzleSocketName,
             FVector::ZeroVector, 
             FRotator::ZeroRotator, 
             EAttachLocation::SnapToTarget, 
@@ -250,16 +254,16 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
     }
 
     // 2. Fire Sound
-    if (GetWeaponData()->FireSound)
+    if (WeaponData->FireSound)
     {
-        UGameplayStatics::PlaySoundAtLocation(this, GetWeaponData()->FireSound, GetActorLocation());
+        UGameplayStatics::PlaySoundAtLocation(this, WeaponData->FireSound, GetActorLocation());
     }
     
     // 3. Impact Particles
-    if (GetWeaponData()->ImpactParticles)
+    if (WeaponData->ImpactParticles)
     {
         // Simple impact logic. Ideally, trace material to decide WHICH particle to play.
-        UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), GetWeaponData()->ImpactParticles, TraceHitTarget);
+        UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), WeaponData->ImpactParticles, TraceHitTarget);
     }
 	
 	// 4. Montages & Camera Shake
@@ -267,14 +271,14 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 	if (OwnerCharacter)
 	{
 		// Select Montage based on Aim State
-		UAnimMontage* MontageToPlay = GetFireMontage(); // Default to Hip Fire
+		UAnimMontage* MontageToPlay = WeaponData->FireMontage; // Default to Hip Fire
         
 		const AFPSPlayerCharacter* FPSCharacter = Cast<AFPSPlayerCharacter>(OwnerCharacter);
 		if (FPSCharacter)
 		{
-			if (FPSCharacter->GetLayerStates().AimState == EAimState::EAS_ADS && GetAimedFireMontage())
+			if (FPSCharacter->GetLayerStates().AimState == EAimState::EAS_ADS && WeaponData->AimedFireMontage)
 			{
-				MontageToPlay = GetAimedFireMontage();
+				MontageToPlay = WeaponData->AimedFireMontage;
 			}
 		}
 
@@ -285,11 +289,11 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 		}
         
 		// Apply Camera Shake (Local Player Only)
-		if (OwnerCharacter->IsLocallyControlled() && GetFiringCameraShake())
+		if (OwnerCharacter->IsLocallyControlled() && WeaponData->FireCameraShake)
 		{
 			if (APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController()))
 			{
-				PC->ClientStartCameraShake(GetFiringCameraShake(), 1.0f);
+				PC->ClientStartCameraShake(WeaponData->FireCameraShake, 1.0f);
 			}
 		}
 	}
@@ -301,12 +305,26 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 
 void AFPSWeapon::AddAmmo(int32 AmountToAdd)
 {
-	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo + AmountToAdd, 0, GetMaxClipAmmo());
+	CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo + AmountToAdd, 0, WeaponData->MaxClipAmmo);
 }
 
 void AFPSWeapon::SetInitialClipAmmo()
 {
-	CurrentClipAmmo = GetMaxClipAmmo();
+	CurrentClipAmmo = WeaponData->MaxClipAmmo;
+}
+
+void AFPSWeapon::ApplyRecoil(const int32 ShotsFired) const
+{
+	RecoilComponent->ApplyRecoil(
+		WeaponData->RecoilPatternCurve->GetVectorValue(ShotsFired),
+		WeaponData->RecoilInterpSpeed, 
+		WeaponData->RecoilRecoverySpeed
+	);
+}
+
+void AFPSWeapon::ResetRecoil() const
+{
+	RecoilComponent->StartRecovery();
 }
 
 void AFPSWeapon::Interact_Implementation(APawn* InstigatorPawn)

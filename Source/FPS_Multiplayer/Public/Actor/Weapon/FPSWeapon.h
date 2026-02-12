@@ -8,6 +8,7 @@
 #include "Interface/FPSInteractableInterface.h"
 #include "FPSWeapon.generated.h"
 
+class UFPSRecoilComponent;
 // --- Forward Declarations ---
 class UWidgetComponent;
 class USphereComponent;
@@ -66,7 +67,7 @@ public:
 	 * @param HitTarget - The world location the trace hit (calculated by Camera).
 	 */
 	void Fire(const FVector& HitTarget);
-    
+	
 	/**
 	 * Adds ammo to the current magazine. Safe to call, handles clamping.
 	 * @note Should typically only be called on the Server.
@@ -75,6 +76,10 @@ public:
     
 	/** Resets ammo to full capacity (e.g. on spawn). */
 	void SetInitialClipAmmo();
+	
+	void ApplyRecoil(int32 ShotsFired) const;
+	
+	void ResetRecoil() const;
 	
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return WeaponMesh; }
@@ -173,6 +178,9 @@ private:
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Weapon|Properties")
 	TObjectPtr<USkeletalMeshComponent> WeaponMesh;
+	
+	UPROPERTY(VisibleAnywhere, Category = "Weapon|Properties")
+	TObjectPtr<UFPSRecoilComponent> RecoilComponent;
 	
 	/**
 	 * The 3D UI that appears above the gun ("Press E to Pickup").

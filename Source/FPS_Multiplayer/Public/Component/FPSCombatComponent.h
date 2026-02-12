@@ -39,6 +39,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Combat|State")
     FORCEINLINE int32 GetCarriedAmmo() const { return CarriedAmmo; }
     
+    FORCEINLINE void SetShotsFired(int32 NewShotsFired) { ShotsFired = NewShotsFired; }
+    FORCEINLINE int32 GetShotsFired() const { return ShotsFired; }
+    
     // --- COMBAT ACTIONS (Input) ---
     
     /** 
@@ -124,4 +127,6 @@ private:
     /** Total ammo in "Backpack" (Reserve). */
     UPROPERTY(Replicated)
     int32 CarriedAmmo = 120;
+    
+    int32 ShotsFired;
 };

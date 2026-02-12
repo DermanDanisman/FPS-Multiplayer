@@ -12,6 +12,7 @@ class AFPSProjectile;
 class USoundBase;
 class UParticleSystem;
 class UAnimMontage;
+class UCurveVector;
 
 USTRUCT(BlueprintType)
 struct FWeaponMovementData
@@ -101,6 +102,22 @@ public:
 	/** Only used if FireType == Projectile */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Ballistics", meta=(EditCondition="FireType == EWeaponFireType::EWFT_Projectile"))
 	TSubclassOf<AFPSProjectile> ProjectileClass;
+	
+	/** How much the gun kicks UP (Pitch). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	TObjectPtr<UCurveVector> RecoilPatternCurve;
+	
+	/** Multiplier to scale the curve values globally (e.g., 1.0 = Normal, 0.5 = Silenced) */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	float RecoilScale = 1.0f;
+	
+	/** How fast the recoil interpolates to the target. Higher = Snappier. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	float RecoilInterpSpeed = 30.0f;
+    
+	/** How fast the recoil recovers (centers back) when not firing. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	float RecoilRecoverySpeed = 20.0f;
     
 	// --- ANIMATION & FX ---
 

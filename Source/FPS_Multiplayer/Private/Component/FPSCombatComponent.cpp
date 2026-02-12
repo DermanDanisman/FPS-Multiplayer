@@ -172,6 +172,8 @@ void UFPSCombatComponent::StopFire()
 {
 	bFireButtonPressed = false;
 	CombatState = ECombatState::ECS_Unoccupied;
+	ShotsFired = 0;
+	EquippedWeapon->ResetRecoil();
 	GetWorld()->GetTimerManager().ClearTimer(FireTimerHandle);
 }
 
@@ -199,6 +201,8 @@ void UFPSCombatComponent::Fire()
     
 		FVector HitTarget = HitResult.bBlockingHit ? HitResult.ImpactPoint : HitResult.TraceEnd;
 		EquippedWeapon->Fire(HitTarget);
+		ShotsFired++;
+		EquippedWeapon->ApplyRecoil(ShotsFired);
 
 		// 4. AUTOMATIC LOOP
 		if (EquippedWeapon->IsAutomatic())
