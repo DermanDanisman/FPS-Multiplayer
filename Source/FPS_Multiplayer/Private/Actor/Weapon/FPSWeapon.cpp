@@ -218,7 +218,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 	}
 	
 	// Server needs to broadcast too so the Host UI updates
-	OnAmmoChanged.Execute(CurrentClipAmmo, GetMaxClipAmmo());
+	OnAmmoChanged.ExecuteIfBound(CurrentClipAmmo, GetMaxClipAmmo());
 
 	// --- 3. REPLICATE FX ---
 	// Tell other clients to play sounds and flashes
@@ -291,7 +291,7 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 
 void AFPSWeapon::OnRep_CurrentClipAmmo()
 {
-	OnAmmoChanged.Execute(CurrentClipAmmo, GetMaxClipAmmo());
+	OnAmmoChanged.ExecuteIfBound(CurrentClipAmmo, GetMaxClipAmmo());
 }
 
 // =========================================================================

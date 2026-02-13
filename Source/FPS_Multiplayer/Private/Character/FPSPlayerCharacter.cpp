@@ -174,11 +174,29 @@ void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
 	DOREPLIFETIME_CONDITION(ThisClass, LayerStates, COND_None);
+	
+	// REPLICATION RULE: COND_SkipOwner
+	// We do NOT send this packet to the player who owns this character.
+	// Sending input back to the player who created it wastes bandwidth.
+	DOREPLIFETIME_CONDITION(ThisClass, ReplicatedControlRotation, COND_SkipOwner);
 }
 
 void AFPSPlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	
+	// SERVER LOGIC: Capture & Compress
+	// We need to capture the rotation on the Server so it can be sent to other clients.
+	// We verify 'HasAuthority' because only the Server can replicate variables to others.
+	if (HasAuthority())
+	{
+		if (AController* PC = GetController())
+		{
+			// Capture the Controller's rotation (where the player is looking)
+			// and compress it into our 16-bit struct immediately.
+			ReplicatedControlRotation.SetFromRotator(PC->GetControlRotation());
+		}
+	}
 }
 
 void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -584,3 +602,24 @@ void AFPSPlayerCharacter::TryStartSprinting()
 		SetGaitState(EGait::EG_Sprinting); // This calls Server RPC internally!
 	}
 }
+
+FRotator AFPSPlayerCharacter::GetReplicatedControlRotation() const
+{
+	// LOGIC FORK: Determine the source of truth based on who we are.
+    
+	// CASE A: We are the Owner (Autonomous Proxy)
+	// I am playing this character on my machine.
+	// I have direct access to the PlayerController input.
+	// Return the raw, uncompressed input for maximum smoothness and responsiveness.
+	if (IsLocallyControlled())
+	{
+		return GetControlRotation();
+	}
+
+	// CASE B: We are looking at someone else (Simulated Proxy)
+	// This character is controlled by another player or the server.
+	// I don't know their input. I must rely on the replicated data packet.
+	// Decompress the 16-bit integers back into floats.
+	return ReplicatedControlRotation.ToRotator();
+}
+

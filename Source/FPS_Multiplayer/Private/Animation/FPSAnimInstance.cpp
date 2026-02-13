@@ -54,6 +54,8 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	CalculatePlayRate();
 	CalculatePitchValuePerBone();
 	CalculateAimOffset();
+	CalculateTurnInPlace();
+	
 	CalculateHandTransforms();
 }
 
@@ -287,21 +289,9 @@ void UFPSAnimInstance::CalculatePlayRate()
 void UFPSAnimInstance::CalculatePitchValuePerBone()
 {
 	// 1. SOURCE SELECTION (Network Logic)
-	FRotator TargetRotation;
-	
-	if (FPSCharacter->IsLocallyControlled())
-	{
-		// The control pitch already comes clamped to avoid looking more than 90 deg up or 90 deg down 
-		// Local Input (Instant, Smooth)
-		TargetRotation = FPSCharacter->GetControlRotation();
-	}
-	else
-	{
-		// Replicated Data (Networked)
-		// This reads the compressed 'RemoteViewPitch' that Unreal replicates automatically.
-		// Replicated, compressed byte (might be jittery)
-		TargetRotation = FPSCharacter->GetBaseAimRotation();
-	}
+	// ALWAYS use your custom replicated rotation. 
+	// It exists on Owner (locally) and Simulated (via your replication).
+	FRotator TargetRotation = FPSCharacter->GetReplicatedControlRotation();
 	
 	// 2. NORMALIZE
 	// GetBaseAimRotation often returns 0-360, while ControlRotation is -90 to 90.
@@ -332,10 +322,118 @@ void UFPSAnimInstance::CalculatePitchValuePerBone()
 
 void UFPSAnimInstance::CalculateAimOffset()
 {
-	FRotator ControlRotation = FPSCharacter->GetControlRotation();
+	// [REPLICATED] Orient in the direction of the camera’s rotation.
+	
+	FRotator ControlRotation = FPSCharacter->GetReplicatedControlRotation();
 	FRotator ActorRotation = FPSCharacter->GetActorRotation();
 	FRotator AimOffset = UKismetMathLibrary::NormalizedDeltaRotator(ControlRotation, ActorRotation);
 	PitchOffset = AimOffset.Pitch;
+}
+
+void UFPSAnimInstance::CalculateTurnInPlace()
+{
+	if (bIsFalling || GroundSpeed > 0)
+	{
+		RootYawOffset = FMath::FInterpTo(
+			RootYawOffset, 
+			0.0f, 
+			GetDeltaSeconds(), 
+			5.f
+		);
+		
+		YawOffset = RootYawOffset * -1.f;
+		
+		MovingRotation = FPSCharacter->GetActorRotation();
+		LastMovingRotation = MovingRotation;
+	}
+	else
+	{
+		// Calculate Root Yaw Offset
+		LastRootYawOffset = RootYawOffset;
+		if (MovingRotation == FRotator::ZeroRotator)
+		{
+			LastMovingRotation = FPSCharacter->GetActorRotation();
+		}
+		else
+		{
+			LastMovingRotation = MovingRotation;
+		}
+		
+		MovingRotation = FPSCharacter->GetActorRotation();
+		
+		FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(MovingRotation, LastMovingRotation);
+		float DeltaRootYawOffset = RootYawOffset - DeltaRot.Yaw;
+		
+		if (GetCurveValue("Turning") > 0.0f)
+		{
+			RootYawOffset = FMath::FInterpTo(
+				LastRootYawOffset, 
+				DeltaRootYawOffset, 
+				GetDeltaSeconds(), 
+				5.f
+			);
+		}
+		else
+		{
+			RootYawOffset = DeltaRootYawOffset;
+		}
+		
+		YawOffset = RootYawOffset * -1.f;
+		
+		// Is Turning?
+		if (GetCurveValue("Turning") > 0.0f)
+		{
+			LastDistanceCurve = DistanceCurve;
+			
+			bool bIsSmallerThanZero = (RootYawOffset < 0.0f);
+			if (RootYawOffset > 0.0f && !bIsSmallerThanZero)
+			{
+				DistanceCurve = GetCurveValue("DistanceCurve");
+			}
+			else
+			{
+				DistanceCurve = GetCurveValue("DistanceCurve") * -1.f;
+			}
+		}
+		
+		DeltaDistanceCurve = DistanceCurve - LastDistanceCurve;
+		if (RootYawOffset > 0.0f)
+		{
+			RootYawOffset = RootYawOffset + DeltaDistanceCurve;
+		}
+		else
+		{
+			RootYawOffset = RootYawOffset + DeltaDistanceCurve;
+		}
+		
+		// Calculate Yaw Excess
+		AbsoluteRootYawOffset = FMath::Abs(RootYawOffset);
+		if (AbsoluteRootYawOffset > TurnAngle)
+		{
+			YawExcess = AbsoluteRootYawOffset - TurnAngle;
+			
+			if (RootYawOffset > 0.0f)
+			{
+				RootYawOffset = RootYawOffset - YawExcess;
+			}
+			else
+			{
+				RootYawOffset = RootYawOffset + YawExcess;
+			}
+		}
+		
+		// Calculate Speed Turn
+		float PreviousYawRate = LookingRotation.Yaw;
+		LookingRotation = FPSCharacter->GetControlRotation();
+		float DeltaYawRate = LookingRotation.Yaw - PreviousYawRate;
+		YawRate = UKismetMathLibrary::MapRangeClamped(
+			FMath::Abs(DeltaYawRate / GetDeltaSeconds()), 
+			120.f, 
+			600.f, 
+			1.f, 
+			3.f
+		);
+	}
 }
 
 // =========================================================================

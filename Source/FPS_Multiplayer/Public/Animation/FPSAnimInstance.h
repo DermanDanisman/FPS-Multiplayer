@@ -151,6 +151,26 @@ protected:
 	//                   --- PROCEDURAL MATH SETTINGS (Logic) ---
 	// =========================================================================
 	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Turn In Place")
+	float RootYawOffset;
+	FRotator MovingRotation;
+	FRotator LastMovingRotation;
+	float DistanceCurve;
+	float LastDistanceCurve;
+	float DeltaDistanceCurve;
+	float AbsoluteRootYawOffset;
+	float YawExcess;
+	FRotator LookingRotation;
+	float YawRate;
+	float LastRootYawOffset;
+	bool bIsFirstTurnUpdate = true;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|AimOffset")
+	float TurnAngle = 85.f;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|AimOffset")
+	float YawOffset;
+	
 	// Vertical Aim Offset (Pitch) used for Spine bending
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|AimOffset")
 	float PitchOffset;
@@ -158,6 +178,16 @@ protected:
 	// Distributed pitch value (e.g. Total Pitch / 8 bones) for smooth spine curvature
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|AimOffset")
 	FRotator PitchValuePerBone;
+	
+	/**
+	 * Controls the interpolation speed for the Procedural Hand Transform (TInterpTo).
+	 * @usage Determines how "snappy" the sight alignment feels. 
+	 * @value Higher (20+) = Snappy/Instant alignment. 
+	 * @value Lower (10-) = Smooth/Floaty alignment (gun feels heavy).
+	 * @note This is INDEPENDENT of the animation speed. You generally want this HIGH so the crosshair aligns quickly even if the animation is slow.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|AimOffset")
+	float AimInterpSpeed = 15.0f;
     
 	// The Cache: Stores the calculated transform for EVERY sight on the gun.
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
@@ -173,16 +203,6 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	FRotator HandRotation;
-
-	/**
-	 * Controls the interpolation speed for the Procedural Hand Transform (TInterpTo).
-	 * @usage Determines how "snappy" the sight alignment feels. 
-	 * @value Higher (20+) = Snappy/Instant alignment. 
-	 * @value Lower (10-) = Smooth/Floaty alignment (gun feels heavy).
-	 * @note This is INDEPENDENT of the animation speed. You generally want this HIGH so the crosshair aligns quickly even if the animation is slow.
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Configuration | AimOffset")
-	float AimInterpSpeed = 15.0f;
 	
 	// Transition speeds loaded from Weapon Config
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
@@ -319,6 +339,7 @@ private:
 	void CalculatePlayRate();
 	void CalculatePitchValuePerBone();
 	void CalculateAimOffset();
+	void CalculateTurnInPlace();
 	
 	/**
 	 * Calculates the precise hand offsets needed to align the weapon sights with the camera.

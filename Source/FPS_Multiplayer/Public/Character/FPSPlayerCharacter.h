@@ -8,6 +8,7 @@
 #include "Data/Structs/FPSCharacterDataContainer.h"
 #include "GameFramework/Character.h"
 #include "Interface/FPSWeaponHandlerInterface.h"
+#include "Serialization/Archive.h" // Needed for serialization
 #include "FPSPlayerCharacter.generated.h"
 
 class UFPSInteractionComponent;
@@ -18,6 +19,58 @@ class UInputAction;
 class UInputMappingContext;
 class USpringArmComponent;
 class UCameraComponent;
+
+/**
+ * @struct FReplicatedControlRotation
+ * @brief  Optimized network structure for replicating Control Rotation (Aim Direction).
+ * * NETWORK OPTIMIZATION EXPLAINED:
+ * 1. Standard 'FRotator' uses 3x 32-bit floats (96 bits total).
+ * 2. For Aim Offsets, we only need Pitch and Yaw (Roll is irrelevant).
+ * 3. We compress 360 degrees into a 16-bit integer (0 to 65535).
+ * * RESULT: 
+ * - Bandwidth usage drops from 96 bits -> 32 bits (66% reduction).
+ * - Precision is ~0.005 degrees per step (Imperceptible to human eye).
+ * - Replaces the legacy "RemoteViewPitch" byte which was too jittery (1.4 deg precision).
+ */
+USTRUCT()
+struct FReplicatedControlRotation
+{
+	GENERATED_BODY()
+
+	// Pitch: Up/Down look angle. 0-65535 maps to 0-360 degrees.
+	UPROPERTY()
+	uint16 Pitch = 0;
+
+	// Yaw: Left/Right look angle. 0-65535 maps to 0-360 degrees.
+	UPROPERTY()
+	uint16 Yaw = 0;
+
+	// --- HELPER: COMPRESS (Float -> Int) ---
+	void SetFromRotator(const FRotator& InRotator)
+	{
+		// 1. Normalize axes to ensure we are strictly in 0-360 range (handles negatives like -90)
+		float NormalizedPitch = FRotator::NormalizeAxis(InRotator.Pitch);
+		float NormalizedYaw = FRotator::NormalizeAxis(InRotator.Yaw);
+
+		// 2. Map Range: 
+		// We multiply by 65535 (max uint16) and divide by 360 (max degrees).
+		// Formula: (Angle / 360.0) * 65535.0
+		Pitch = (uint16)((NormalizedPitch / 360.f) * 65535.f);
+		Yaw = (uint16)((NormalizedYaw / 360.f) * 65535.f);
+	}
+
+	// --- HELPER: DECOMPRESS (Int -> Float) ---
+	FRotator ToRotator() const
+	{
+		// 1. Reverse the Math:
+		// Formula: (Step / 65535.0) * 360.0
+		float DecompressedPitch = (Pitch / 65535.f) * 360.f;
+		float DecompressedYaw = (Yaw / 65535.f) * 360.f;
+
+		// 2. Return standard rotator (Roll is always 0 for aim offsets)
+		return FRotator(DecompressedPitch, DecompressedYaw, 0.f);
+	}
+};
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnGaitChanged, EGait);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnOverlayStateChanged, EOverlayState);
@@ -71,6 +124,15 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
 	FORCEINLINE EAimState GetAimState() const { return LayerStates.AimState; }
+	
+	/**
+	 * @brief Gets the Control Rotation efficiently based on Network Role.
+	 * @return The smoothest available aim rotation.
+	 * - Locally Controlled: Returns direct Input (Infinite precision, 0 latency).
+	 * - Simulated Proxy: Returns decompressed Network Data (High precision, interpolated).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Player|Getters")
+	FRotator GetReplicatedControlRotation() const;
 	
 	// =========================================================================
 	//                        SETTER FUNCTIONS
@@ -214,6 +276,14 @@ protected:
 	
 	UPROPERTY(Replicated)
 	FCharacterLayerStates LayerStates;
+
+	/**
+	 * Stores the compressed Aim Direction for other clients to read.
+	 * @replicated Replicated to everyone EXCEPT the owner (COND_SkipOwner).
+	 * Why SkipOwner? The owner already predicts their own input locally!
+	 */
+	UPROPERTY(Replicated)
+	FReplicatedControlRotation ReplicatedControlRotation;
 
 private:
 	
