@@ -19,6 +19,19 @@ void UFPSAnimInstance::NativeInitializeAnimation()
 	UpdateReferences();
 }
 
+void UFPSAnimInstance::NativeUninitializeAnimation()
+{
+	if (FPSCharacter.IsValid())
+	{
+		if (UFPSCombatComponent* Combat = FPSCharacter->GetCombatComponent())
+		{
+			Combat->OnWeaponEquipped.Remove(OnWeaponEquippedDelegateHandle);
+		}
+	}
+    
+	Super::NativeUninitializeAnimation();
+}
+
 // Runs every frame on the Game Thread.
 // ARCHITECTURE NOTE: We do NOT do heavy logic here. We simply copy data
 // from the Character to local variables so the AnimGraph (Worker Thread) can read them safely.
@@ -58,10 +71,10 @@ void UFPSAnimInstance::UpdateReferences()
 			{
 				// 2. SAFETY UNBIND: Prevent duplicate bindings or stale references
 				// If we are re-initializing (e.g. changed weapon), remove the old bind first.
-				Combat->OnWeaponEquippedDelegate.RemoveDynamic(this, &ThisClass::OnCharacterWeaponEquipped);
+				Combat->OnWeaponEquipped.Remove(OnWeaponEquippedDelegateHandle);
                 
 				// 3. BIND
-				Combat->OnWeaponEquippedDelegate.AddDynamic(this, &ThisClass::OnCharacterWeaponEquipped);
+				OnWeaponEquippedDelegateHandle = Combat->OnWeaponEquipped.AddUObject(this, &ThisClass::OnCharacterWeaponEquipped);
 			}
 
 			MovementComponent = Cast<UCharacterMovementComponent>(FPSCharacter->GetMovementComponent());
@@ -503,6 +516,15 @@ void UFPSAnimInstance::CalculateHandTransforms()
 
 void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
 {
+	if (!NewWeapon) 
+	{
+		// Reset to defaults or safe values
+		CurrentHipFireOffset = FTransform::Identity;
+		HandTransforms.Empty();
+		CachedSights.Empty();
+		return; 
+	}
+	
 	// 1. Cache Simple Data (The stuff you noticed!)
     const FWeaponMovementData& WeaponData = NewWeapon->GetMovementData();
     WalkSpeed   = WeaponData.AnimWalkRefSpeed;

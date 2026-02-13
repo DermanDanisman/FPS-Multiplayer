@@ -29,12 +29,4 @@ protected:
 	// The "Map" of keys. (e.g. WASD -> Move, Mouse -> Look)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
-	
-private:
-	
-	UPROPERTY(EditDefaultsOnly, Category = "UI | HUD")
-	TSubclassOf<UUserWidget> HUDWidgetClass;
-	
-	UPROPERTY()
-	TObjectPtr<UUserWidget> HUDWidgetInstance;
 };

@@ -3,11 +3,11 @@
 #include "Actor/Weapon/FPSWeapon.h"
 
 #include "Actor/Projectile/FPSProjectile.h"
-#include "Character/FPSPlayerCharacter.h"
-#include "Component/FPSCombatComponent.h"
 #include "Component/FPSRecoilComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Curves/CurveVector.h"
+#include "GameFramework/Character.h"
+#include "Interface/FPSWeaponHandlerInterface.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 
@@ -110,19 +110,18 @@ void AFPSWeapon::OnRep_WeaponState()
 
 void AFPSWeapon::Fire(const FVector& HitTarget)
 {
-	// 1. PREDICTION (Client/Server)
-	// Deduct Ammo locally so UI updates instantly without waiting for Server
-	if (CurrentClipAmmo > 0)
+	// 1. PREDICTION (Client Only)
+	// If we are the Server, we skip this because Server_Fire will handle it immediately.
+	// If we are a Client, we do this to update the UI instantly (Prediction).
+	if (CurrentClipAmmo > 0 && !HasAuthority()) 
 	{
 		CurrentClipAmmo = FMath::Clamp(CurrentClipAmmo - 1, 0, WeaponData->MaxClipAmmo);
 	}
 
 	// 2. VISUALS (Local)
-	// Play sound/flash immediately for the shooter
 	PlayFireEffects(HitTarget);
     
 	// 3. AUTHORITY (Network)
-	// Send request to Server to handle real math and replication
 	Server_Fire(HitTarget);
 }
 
@@ -217,6 +216,9 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 				break;
 			}
 	}
+	
+	// Server needs to broadcast too so the Host UI updates
+	OnAmmoChanged.Execute(CurrentClipAmmo, GetMaxClipAmmo());
 
 	// --- 3. REPLICATE FX ---
 	// Tell other clients to play sounds and flashes
@@ -267,36 +269,29 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
     }
 	
 	// 4. Montages & Camera Shake
-	const ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	if (OwnerCharacter)
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (GetOwner() && GetOwner()->Implements<UFPSWeaponHandlerInterface>())
 	{
-		// Select Montage based on Aim State
-		UAnimMontage* MontageToPlay = WeaponData->FireMontage; // Default to Hip Fire
-        
-		const AFPSPlayerCharacter* FPSCharacter = Cast<AFPSPlayerCharacter>(OwnerCharacter);
-		if (FPSCharacter)
+		IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter);
+		if (WeaponHandler)
 		{
-			if (FPSCharacter->GetLayerStates().AimState == EAimState::EAS_ADS && WeaponData->AimedFireMontage)
-			{
-				MontageToPlay = WeaponData->AimedFireMontage;
-			}
-		}
-
-		// Play Selected Montage
-		if (MontageToPlay && OwnerCharacter->GetMesh()->GetAnimInstance())
-		{
-			OwnerCharacter->GetMesh()->GetAnimInstance()->Montage_Play(MontageToPlay);
-		}
-        
-		// Apply Camera Shake (Local Player Only)
-		if (OwnerCharacter->IsLocallyControlled() && WeaponData->FireCameraShake)
-		{
-			if (APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController()))
-			{
-				PC->ClientStartCameraShake(WeaponData->FireCameraShake, 1.0f);
-			}
+			WeaponHandler->PlayFireMontage(WeaponData->FireMontage, WeaponData->AimedFireMontage);
 		}
 	}
+        
+	// Apply Camera Shake (Local Player Only)
+	if (OwnerCharacter->IsLocallyControlled() && WeaponData->FireCameraShake)
+	{
+		if (APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController()))
+		{
+			PC->ClientStartCameraShake(WeaponData->FireCameraShake, 1.0f);
+		}
+	}
+}
+
+void AFPSWeapon::OnRep_CurrentClipAmmo()
+{
+	OnAmmoChanged.Execute(CurrentClipAmmo, GetMaxClipAmmo());
 }
 
 // =========================================================================
@@ -311,6 +306,7 @@ void AFPSWeapon::AddAmmo(int32 AmountToAdd)
 void AFPSWeapon::SetInitialClipAmmo()
 {
 	CurrentClipAmmo = WeaponData->MaxClipAmmo;
+	
 }
 
 void AFPSWeapon::ApplyRecoil(const int32 ShotsFired) const
@@ -329,11 +325,15 @@ void AFPSWeapon::ResetRecoil() const
 
 void AFPSWeapon::Interact_Implementation(APawn* InstigatorPawn)
 {
-	if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(InstigatorPawn))
+	// Check if the pawn implements the interface (works for Player AND AI)
+	if (InstigatorPawn && InstigatorPawn->Implements<UFPSWeaponHandlerInterface>())
 	{
-		if (UFPSCombatComponent* Combat = FPSChar->GetCombatComponent())
+		// Execute the Interface call
+		// Note: For C++ interfaces, we execute via the I-class pointer.
+		IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(InstigatorPawn);
+		if (WeaponHandler)
 		{
-			Combat->EquipWeapon(this);
+			WeaponHandler->SetCurrentWeapon(this);
 		}
 	}
 }

@@ -26,25 +26,4 @@ void AFPSPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	if (IsLocalPlayerController())
-	{
-		// 3. REGISTER INPUT MAPPING
-		UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
-		if (!Subsystem) return;
-		
-		if (DefaultMappingContext)
-		{
-			Subsystem->AddMappingContext(DefaultMappingContext, 0);
-		}
-		
-		if (HUDWidgetClass)
-		{
-			if (!IsValid(HUDWidgetInstance))
-			{
-				HUDWidgetInstance = CreateWidget(this, HUDWidgetClass);
-			}
-
-			HUDWidgetInstance->AddToPlayerScreen();
-		}
-	}
 }

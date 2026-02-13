@@ -64,6 +64,14 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 	// --- SERVER LOGIC START ---
 	if (OwnerCharacter)
 	{
+		// --- 1. CLEANUP OLD WEAPON ---
+		if (EquippedWeapon)
+		{
+			// Since it's a Single Delegate, we just Unbind it.
+			// This clears whatever lambda/function was attached.
+			EquippedWeapon->OnAmmoChanged.Unbind();
+		}
+		
 		// 1. Update State (Server Side)
 		EquippedWeapon = WeaponToEquip;
 		EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
@@ -85,10 +93,10 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 		EquippedWeapon->SetOwner(OwnerCharacter);
 		
 		// 5. Stat Updates
-		if (WeaponToEquip)
+		if (EquippedWeapon)
 		{
 			// 1. Get the Data Packet
-			const FWeaponMovementData& WeaponData = WeaponToEquip->GetMovementData();
+			const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
 
 			// 2. Apply Physics to Character
 			if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(GetOwner()))
@@ -97,10 +105,11 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 				FPSChar->UpdateMovementSettings(WeaponData);
 				FPSChar->SetOverlayState(WeaponData.OverlayState);
 			}
+			
+			MonitorWeapon(EquippedWeapon);
+			// Server broadcasts delegate locally (for logic running on server)
+			OnWeaponEquipped.Broadcast(EquippedWeapon);
 		}
-		
-		// Server broadcasts delegate locally (for logic running on server)
-		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
 	}
 }
 
@@ -117,6 +126,12 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 	// The Server knows the gun is attached, but the Client's engine doesn't know WHERE to put it yet.
 	// This is where we handle the JITTER FIX.
 	
+	// --- 1. CLEANUP OLD WEAPON ---
+	if (LastEquippedWeapon)
+	{
+		LastEquippedWeapon->OnAmmoChanged.Unbind();
+	}
+    
 	if (!IsValid(EquippedWeapon)) return;
 	
 	// 1. Update Weapon Physics locally (Client Visuals)
@@ -138,7 +153,8 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 		// --- 3. JITTER FIX (Prediction) ---
 		// We must apply the MaxWalkSpeed update on the Client immediately.
 		// If we don't, the Client tries to move at 600 speed, Server forces 300, causing rubber-banding.
-		if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(OwnerCharacter))
+		AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(OwnerCharacter);
+		if (IsValid(FPSChar))
 		{
 			const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
             
@@ -147,11 +163,27 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
             
 			// Sync Animation Pose
 			FPSChar->SetOverlayState(WeaponData.OverlayState); 
+			
+			// 4. Notify AnimInstance to run CalculateHandTransforms!
+			MonitorWeapon(EquippedWeapon);
+			OnWeaponEquipped.Broadcast(EquippedWeapon);
 		}
-        
-		// 4. Notify AnimInstance to run CalculateHandTransforms!
-		OnWeaponEquippedDelegate.Broadcast(EquippedWeapon);
 	}
+}
+
+void UFPSCombatComponent::OnRep_CombatState(ECombatState PreviousCombatState)
+{
+	// Optional: Use this to update HUD state (Crosshair spread, etc.)
+	
+	const FString Prev = CombatStateToString(PreviousCombatState);
+	const FString Curr = CombatStateToString(CombatState);
+
+	GEngine->AddOnScreenDebugMessage(
+		-1,
+		5.f,
+		FColor::Red,
+		FString::Printf(TEXT("Combat State Changed: %s -> %s"), *Prev, *Curr)
+	);
 }
 
 // =========================================================================
@@ -173,7 +205,13 @@ void UFPSCombatComponent::StopFire()
 	bFireButtonPressed = false;
 	CombatState = ECombatState::ECS_Unoccupied;
 	ShotsFired = 0;
-	EquippedWeapon->ResetRecoil();
+	
+	// FIX: Check if weapon exists before accessing it!
+	if (EquippedWeapon) 
+	{
+		EquippedWeapon->ResetRecoil();
+	}
+	
 	GetWorld()->GetTimerManager().ClearTimer(FireTimerHandle);
 }
 
@@ -201,6 +239,7 @@ void UFPSCombatComponent::Fire()
     
 		FVector HitTarget = HitResult.bBlockingHit ? HitResult.ImpactPoint : HitResult.TraceEnd;
 		EquippedWeapon->Fire(HitTarget);
+		OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetMaxClipAmmo());
 		ShotsFired++;
 		EquippedWeapon->ApplyRecoil(ShotsFired);
 
@@ -341,19 +380,27 @@ void UFPSCombatComponent::FinishReloading()
     
 	// 4. --- RESET ---
 	CombatState = ECombatState::ECS_Unoccupied;
+	
+	// 5. UPDATE UI (Manual Broadcast)
+	// Do NOT call MonitorWeapon() here.
+	OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetMaxClipAmmo());
+	OnCarriedAmmoChanged.Broadcast(CarriedAmmo);
 }
 
-void UFPSCombatComponent::OnRep_CombatState(ECombatState PreviousCombatState)
+// Helper function to keep code clean
+void UFPSCombatComponent::MonitorWeapon(AFPSWeapon* Weapon)
 {
-	// Optional: Use this to update HUD state (Crosshair spread, etc.)
-	
-	const FString Prev = CombatStateToString(PreviousCombatState);
-	const FString Curr = CombatStateToString(CombatState);
+	if (!Weapon) return;
 
-	GEngine->AddOnScreenDebugMessage(
-		-1,
-		5.f,
-		FColor::Red,
-		FString::Printf(TEXT("Combat State Changed: %s -> %s"), *Prev, *Curr)
-	);
+	// Unbind previous weapon if necessary (Optional optimization)
+    
+	// Bind to the new weapon
+	Weapon->OnAmmoChanged.BindLambda([this](int32 Current, int32 Max)
+	{
+		// FORWARD the message to the UI
+		OnWeaponAmmoChanged.Broadcast(Current, Max);
+	});
+    
+	// Broadcast initial state immediately so UI syncs up
+	OnWeaponAmmoChanged.Broadcast(Weapon->GetCurrentClipAmmo(), Weapon->GetMaxClipAmmo());
 }

@@ -54,6 +54,11 @@
 			"Name": "MultiplayerFPS",
 			"Enabled": false,
 			"MarketplaceURL": "https://www.fab.com/listings/708e1500-4218-4c99-ab20-ab241e163edf"
+		},
+		{
+			"Name": "IconCreator",
+			"Enabled": true,
+			"MarketplaceURL": "com.epicgames.launcher://ue/Fab/product/1509c8dc-fed5-452b-abdb-b96a6bba4a7a"
 		}
 	]
 }

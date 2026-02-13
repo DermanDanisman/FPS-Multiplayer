@@ -5,5 +5,6 @@
 
 void UFPSUserWidget::SetWidgetController(UObject* InWidgetController)
 {
-	
+	WidgetController = InWidgetController;
+	WidgetControllerSet(); // Notify the Blueprint that data is ready!
 }

@@ -13,8 +13,29 @@ UCLASS()
 class FPS_MULTIPLAYER_API UFPSUserWidget : public UUserWidget
 {
 	GENERATED_BODY()
-	
-public:
 
-	virtual void SetWidgetController(UObject* InWidgetController);
+public:
+	
+	/**
+	 * Sets the controller and triggers the Blueprint event.
+	 * Use this instead of manually setting the variable.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void SetWidgetController(UObject* InWidgetController);
+
+	/** 
+	 * The Controller (ViewModel) holding the data.
+	 * Marked BlueprintReadOnly so the Designer can bind to it.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	TObjectPtr<UObject> WidgetController;
+
+protected:
+	
+	/** 
+	 * Event called immediately after the Widget Controller is set.
+	 * USE THIS in Blueprint to Cast the Controller and Bind your variables!
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void WidgetControllerSet();
 };

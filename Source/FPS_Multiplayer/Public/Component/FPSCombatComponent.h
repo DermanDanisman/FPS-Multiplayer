@@ -10,7 +10,9 @@
 class AFPSPlayerCharacter;
 class AFPSWeapon;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWeaponEquippedDelegate, AFPSWeapon*, NewWeapon);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnCombatWeaponEquippedSignature, AFPSWeapon*);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnCombatCarriedAmmoChangedSignature, int32);  
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnCombatWeaponAmmoChangedSignature, int32, int32);
 
 /**
  * Handles all combat logic: Firing, Reloading, Ammo Management, and Weapon State.
@@ -26,8 +28,9 @@ public:
     friend AFPSPlayerCharacter;
     
     // --- DELEGATES ---
-    UPROPERTY(BlueprintAssignable, Category = "Combat|Delegates")
-    FOnWeaponEquippedDelegate OnWeaponEquippedDelegate;
+    FOnCombatWeaponEquippedSignature OnWeaponEquipped;
+    FOnCombatCarriedAmmoChangedSignature OnCarriedAmmoChanged;
+    FOnCombatWeaponAmmoChangedSignature OnWeaponAmmoChanged;
     
     // --- STATE GETTERS ---
     UFUNCTION(BlueprintPure, Category = "Combat|State")
@@ -75,6 +78,7 @@ public:
     void FinishReloading();
 
 protected:
+    
     virtual void BeginPlay() override;
     virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
     
@@ -112,6 +116,13 @@ private:
      * @param TraceHitResult - Output struct containing hit info.
      */
     void TraceUnderCrosshairs(FHitResult& TraceHitResult);
+    
+    void MonitorWeapon(AFPSWeapon* Weapon);
+    
+#pragma region Dynamic Crosshair
+    /** Updates the local player's HUD with the current weapon's crosshair textures. */
+    /*void UpdateHUDCrosshairs();*/
+#pragma endregion
 
     // --- INTERNAL STATE ---
 

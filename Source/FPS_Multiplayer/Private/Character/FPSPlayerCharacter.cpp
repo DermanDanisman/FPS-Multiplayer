@@ -12,6 +12,9 @@
 #include "Component/FPSInteractionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/FPSPlayerController.h"
+#include "Player/FPSPlayerState.h"
+#include "UI/HUD/FPSHUD.h"
 
 
 AFPSPlayerCharacter::AFPSPlayerCharacter()
@@ -62,6 +65,64 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanJump = true;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanSwim = true;
+}
+
+void AFPSPlayerCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	
+	if (AController* CharacterController = GetController())
+	{
+		if (CharacterController->IsPlayerController())
+		{
+			// --- Player-controlled character setup ---
+
+			// Get the custom PlayerState class.
+			AFPSPlayerState* TDPlayerState = GetPlayerState<AFPSPlayerState>();
+			
+			// In multiplayer, only the locally controlled character on each client will have a valid PlayerController pointer.
+			// For other (non-local) characters on that client, PlayerController will be nullptr. This is expected.
+			AFPSPlayerController* TDPlayerController = Cast<AFPSPlayerController>(CharacterController);
+			if (TDPlayerController)
+			{
+				// Get the custom HUD and initialize it with all gameplay references.
+				AFPSHUD* FPSHUD = Cast<AFPSHUD>(TDPlayerController->GetHUD());
+				if (FPSHUD)
+				{
+					FPSHUD->InitializeOverlayWidget(TDPlayerController, TDPlayerState);
+				}
+			}
+		}
+	}
+}
+
+void AFPSPlayerCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+	
+	if (AController* CharacterController = GetController())
+	{
+		if (CharacterController->IsPlayerController())
+		{
+			// --- Player-controlled character setup ---
+
+			// Get the custom PlayerState class.
+			AFPSPlayerState* TDPlayerState = GetPlayerState<AFPSPlayerState>();
+			
+			// In multiplayer, only the locally controlled character on each client will have a valid PlayerController pointer.
+			// For other (non-local) characters on that client, PlayerController will be nullptr. This is expected.
+			AFPSPlayerController* TDPlayerController = Cast<AFPSPlayerController>(CharacterController);
+			if (TDPlayerController)
+			{
+				// Get the custom HUD and initialize it with all gameplay references.
+				AFPSHUD* FPSHUD = Cast<AFPSHUD>(TDPlayerController->GetHUD());
+				if (FPSHUD)
+				{
+					FPSHUD->InitializeOverlayWidget(TDPlayerController, TDPlayerState);
+				}
+			}
+		}
+	}
 }
 
 void AFPSPlayerCharacter::BeginPlay()
@@ -326,6 +387,7 @@ void AFPSPlayerCharacter::SetAimState(EAimState NewState)
 {
 	// 1. Prediction: Update locally immediately so it feels responsive
 	LayerStates.AimState = NewState;
+	OnAimStateChanged.Broadcast(NewState);
 	
 	// 2. Replication: Tell the Server
 	if (!HasAuthority())
@@ -354,6 +416,7 @@ void AFPSPlayerCharacter::SetGaitState(EGait NewState)
 {
 	// 1. Prediction: Update locally immediately
 	LayerStates.Gait = NewState;
+	OnGaitStateChanged.Broadcast(NewState);
 
 	// 2. Replication: Tell the Server
 	if (!HasAuthority())
@@ -408,6 +471,33 @@ void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewD
 void AFPSPlayerCharacter::SetOverlayState(EOverlayState NewState)
 {
 	LayerStates.OverlayState = NewState;
+	OnOverlayStateChanged.Broadcast(NewState);
+}
+
+void AFPSPlayerCharacter::SetCurrentWeapon(AFPSWeapon* WeaponToEquip)
+{
+	// The Character knows about the component, so it delegates the work here.
+	if (CombatComponent)
+	{
+		CombatComponent->EquipWeapon(WeaponToEquip);
+	}
+}
+
+void AFPSPlayerCharacter::PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMontage* AimedFireMontage)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (!AnimInstance) return;
+
+	// DECISION LOGIC:
+	// I am the Character. I know if I am aiming. The Weapon doesn't need to know.
+	if (LayerStates.AimState == EAimState::EAS_ADS && AimedFireMontage)
+	{
+		AnimInstance->Montage_Play(AimedFireMontage);
+	}
+	else if (HipFireMontage)
+	{
+		AnimInstance->Montage_Play(HipFireMontage);
+	}
 }
 
 // =========================================================================

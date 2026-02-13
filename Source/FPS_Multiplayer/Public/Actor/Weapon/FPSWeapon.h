@@ -8,8 +8,8 @@
 #include "Interface/FPSInteractableInterface.h"
 #include "FPSWeapon.generated.h"
 
-class UFPSRecoilComponent;
 // --- Forward Declarations ---
+class UFPSRecoilComponent;
 class UWidgetComponent;
 class USphereComponent;
 
@@ -38,6 +38,9 @@ enum class EWeaponState : uint8
 	
 	EWS_MAX UMETA(DisplayName = "DefaultMAX")
 };
+
+// Delegate declaration (Standard Multicast)
+DECLARE_DELEGATE_TwoParams(FOnWeaponStateChanged, int32 /*Current*/, int32 /*Max*/);
 
 /**
  * @class AFPSWeapon
@@ -103,6 +106,12 @@ public:
     
     UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
     FORCEINLINE UFPSWeaponData* GetWeaponData() const { return WeaponData; }
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
+	FORCEINLINE FString GetWeaponName() const { return WeaponData ? WeaponData->WeaponName : FString(); }
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
+	FORCEINLINE UTexture2D* GetWeaponIcon() const { return WeaponData ? WeaponData->WeaponIcon : nullptr; }
+	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
+	FORCEINLINE UTexture2D* GetCrosshairTexture() const { return WeaponData ? WeaponData->CrosshairTexture : nullptr; }
     
     // --- Shortcuts to DataAsset properties for cleaner code elsewhere ---
     FORCEINLINE float GetFireDelay() const { return WeaponData ? WeaponData->FireDelay : 0.1f; }
@@ -111,14 +120,9 @@ public:
     FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
 	FORCEINLINE float GetWeaponDamage() const { return WeaponData ? WeaponData->Damage : 100.f; }
     FORCEINLINE float GetWeaponRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
-	FORCEINLINE TSubclassOf<UCameraShakeBase> GetFiringCameraShake() const { return WeaponData ? WeaponData->FireCameraShake : nullptr; }
-	FORCEINLINE TSubclassOf<AFPSProjectile> GetFPSProjectileClass() const { return WeaponData ? WeaponData->ProjectileClass : nullptr;}
     
     // --- Visuals & IK ---
     FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
-	FORCEINLINE UAnimMontage* GetFireMontage() const { return WeaponData ? WeaponData->FireMontage : nullptr; }
-	FORCEINLINE UAnimMontage* GetAimedFireMontage() const { return WeaponData ? WeaponData->AimedFireMontage : nullptr; }
-    FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
     FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); }
     
     // --- Procedural Aiming Getters ---
@@ -163,6 +167,9 @@ protected:
 
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_Fire(const FVector& TraceHitTarget);
+	
+	UFUNCTION()
+	void OnRep_CurrentClipAmmo();
 
 	/** 
 	 * Local helper to play Muzzle Flash, Sound, and Impact Particles.
@@ -202,6 +209,11 @@ private:
 	EWeaponState WeaponState;
 	
 	// This MUST remain on the Actor because it changes when you shoot!
-	UPROPERTY(Replicated, EditAnywhere, Category = "Weapon|State")
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentClipAmmo, EditAnywhere, Category = "Weapon|State")
 	int32 CurrentClipAmmo;
+	
+public:
+	
+	// Bound to only CombatComponent
+	FOnWeaponStateChanged OnAmmoChanged;
 };

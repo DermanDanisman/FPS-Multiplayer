@@ -73,10 +73,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Identity")
 	FString WeaponName = "Rifle";
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Essential")
+	UPROPERTY(EditDefaultsOnly, Category = "Mesh")
 	FName WeaponHandSocketName = "WeaponHandSocket";
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Essential")
+	UPROPERTY(EditDefaultsOnly, Category = "Mesh")
 	FName MuzzleSocketName = "Muzzle";
 
 	// --- COMBAT STATS ---
@@ -120,6 +120,12 @@ public:
 	float RecoilRecoverySpeed = 20.0f;
     
 	// --- ANIMATION & FX ---
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals|UI")
+	TObjectPtr<UTexture2D> WeaponIcon; // The picture of the gun
+
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals|UI")
+	TObjectPtr<UTexture2D> CrosshairTexture; // Optional: Shotgun vs Sniper crosshair
 
 	/** * The animation to play on the Character when firing.
 	 * @setup Create a Montage from your Fire Sequence. 

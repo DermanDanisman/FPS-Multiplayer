@@ -3,6 +3,11 @@
 
 #include "UI/WidgetController/FPSWidgetController.h"
 
+void UFPSWidgetController::BeginDestroy()
+{
+	Super::BeginDestroy();
+}
+
 void UFPSWidgetController::SetWidgetControllerParams(const FUIWidgetControllerParams& InWidgetControllerParams)
 {
 	// DEPENDENCY INJECTION: Assign all gameplay system references at once

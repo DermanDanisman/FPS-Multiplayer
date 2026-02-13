@@ -6,6 +6,7 @@
 #include "UObject/Object.h"
 #include "FPSWidgetController.generated.h"
 
+class UFPSCombatComponent;
 /**
  * FUIWidgetControllerParams
  *
@@ -26,13 +27,11 @@ struct FUIWidgetControllerParams
 	 * @param InPlayerController         Owner player controller (HUD/input).
 	 * @param InPlayerState              Persistent/replicated player state.
 	 */
-	explicit FUIWidgetControllerParams(APlayerController* InPlayerController,
-	                                 APlayerState* InPlayerState
-	                                 )
+	explicit FUIWidgetControllerParams(APlayerController* InPlayerController, APlayerState* InPlayerState)
 	    : PlayerController(InPlayerController)
 	    , PlayerState(InPlayerState)
 	{}
-
+	
 	/** Owner player controller; may be null until possession/creation completes. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WidgetController")
 	TObjectPtr<APlayerController> PlayerController = nullptr;
@@ -45,11 +44,15 @@ struct FUIWidgetControllerParams
 /**
  * 
  */
-UCLASS()
+UCLASS(BlueprintType, Blueprintable)
 class FPS_MULTIPLAYER_API UFPSWidgetController : public UObject
 {
 	GENERATED_BODY()
+	
 public:
+	
+	virtual void BeginDestroy() override;
+	
 	/**
 	 * Initializes all references at once from a single struct.
 	 * Call immediately after constructing the controller and before any UI binding.
@@ -74,7 +77,7 @@ public:
 	virtual void BindCallbacksToDependencies();
 	
 protected:
-
+	
 	/** Owning player controller (HUD/input). */
 	UPROPERTY(BlueprintReadOnly, Category = "Widget Controller")
 	TObjectPtr<APlayerController> PlayerController;

@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "FPSUserWidget.h"
-#include "Blueprint/UserWidget.h"
 #include "FPSCharacterOverlay.generated.h"
 
 
@@ -16,13 +15,4 @@ UCLASS()
 class FPS_MULTIPLAYER_API UFPSCharacterOverlay : public UFPSUserWidget
 {
 	GENERATED_BODY()
-	
-public:
-	// --- AMMO ---
-	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UPanelWidget> WeaponOverlay;
-
-	// --- HEALTH ---
-	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UPanelWidget> HealthOverlay;
 };

@@ -7,6 +7,7 @@
 #include "Data/Enums/FPSCharacterTypes.h"
 #include "Data/Structs/FPSCharacterDataContainer.h"
 #include "GameFramework/Character.h"
+#include "Interface/FPSWeaponHandlerInterface.h"
 #include "FPSPlayerCharacter.generated.h"
 
 class UFPSInteractionComponent;
@@ -18,13 +19,21 @@ class UInputMappingContext;
 class USpringArmComponent;
 class UCameraComponent;
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnGaitChanged, EGait);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnOverlayStateChanged, EOverlayState);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnAimStateChanged, EAimState);
+
 UCLASS(PrioritizeCategories=("Components Player"))
-class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ACharacter
+class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ACharacter, public IFPSWeaponHandlerInterface
 {
 	GENERATED_BODY()
 
 public:
 	AFPSPlayerCharacter();
+	
+	virtual void PossessedBy(AController* NewController) override;
+	
+	virtual void OnRep_PlayerState() override;
 	
 	virtual void Tick(float DeltaTime) override;
 	
@@ -32,6 +41,14 @@ public:
 	
 	// Called by CombatComponent when a weapon is equipped
 	void UpdateMovementSettings(const FWeaponMovementData& NewData);
+	
+	// =========================================================================
+	//                        DELEGATES
+	// =========================================================================
+	    
+	FOnGaitChanged OnGaitStateChanged;
+	FOnOverlayStateChanged OnOverlayStateChanged;
+	FOnAimStateChanged OnAimStateChanged;
 	
 	// =========================================================================
 	//                        GETTER FUNCTIONS
@@ -69,6 +86,13 @@ public:
 	// Helper to change state (Handles Local Prediction + RPC)
 	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
 	void SetAimState(EAimState NewState);
+	
+	// =========================================================================
+	//               IWeaponHandlerInterface Implementation
+	// =========================================================================
+	
+	virtual void SetCurrentWeapon(AFPSWeapon* WeaponToEquip) override;
+	virtual void PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMontage* AimedFireMontage) override;
 
 protected:
 

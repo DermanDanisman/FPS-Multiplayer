@@ -41,6 +41,8 @@ public:
 	
 	// Called once when the game starts (similar to BeginPlay)
 	virtual void NativeInitializeAnimation() override;
+	
+	virtual void NativeUninitializeAnimation() override;
 
 	// Called every frame. This is the main update loop.
 	// Runs on Game Thread -> Safe to access Character & MovementComponent.
@@ -327,4 +329,6 @@ private:
 	// Event listener: Fires when the Combat Component successfully equips a new gun
 	UFUNCTION()
 	void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
+	
+	FDelegateHandle OnWeaponEquippedDelegateHandle;
 };
