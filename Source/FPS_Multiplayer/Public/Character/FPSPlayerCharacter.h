@@ -55,8 +55,8 @@ struct FReplicatedControlRotation
 		// 2. Map Range: 
 		// We multiply by 65535 (max uint16) and divide by 360 (max degrees).
 		// Formula: (Angle / 360.0) * 65535.0
-		Pitch = (uint16)((NormalizedPitch / 360.f) * 65535.f);
-		Yaw = (uint16)((NormalizedYaw / 360.f) * 65535.f);
+		Pitch = FMath::RoundToInt((NormalizedPitch / 360.f) * 65535.f);
+		Yaw = FMath::RoundToInt((NormalizedYaw / 360.f) * 65535.f);
 	}
 
 	// --- HELPER: DECOMPRESS (Int -> Float) ---
@@ -281,9 +281,11 @@ protected:
 	 * Stores the compressed Aim Direction for other clients to read.
 	 * @replicated Replicated to everyone EXCEPT the owner (COND_SkipOwner).
 	 * Why SkipOwner? The owner already predicts their own input locally!
+	 * A single 32-bit integer. (16 bits Pitch, 16 bits Yaw).
+	 * This is the absolute cheapest way to send 2 rotation axes over a network.
 	 */
 	UPROPERTY(Replicated)
-	FReplicatedControlRotation ReplicatedControlRotation;
+	uint32 PackedControlRotation = 0;
 
 private:
 	
@@ -314,6 +316,8 @@ private:
 	// =========================================================================
 	
 	bool bWantsToSprint = false;
+	
+	float DeltaSeconds;
 	
 	void TryStartSprinting();
 };

@@ -24,6 +24,35 @@ enum class EMovementDirectionMode : uint8
 	EMDM_Backward UMETA(DisplayName = "Backward")
 };
 
+UENUM(BlueprintType)
+enum class ECardinalDirection : uint8
+{
+	ECD_Forward     UMETA(DisplayName = "Forward"),
+	ECD_Backward    UMETA(DisplayName = "Backward"),
+	ECD_Left        UMETA(DisplayName = "Left"),
+	ECD_Right       UMETA(DisplayName = "Right")
+};
+
+UENUM(BlueprintType)
+enum class ELocomotionStartDirection : uint8
+{
+	LSD_Forward			UMETA(DisplayName = "Forward"),
+	LSD_Right			UMETA(DisplayName = "Right"),
+	LSD_Left			UMETA(DisplayName = "Left"),
+	LSD_BackwardRight   UMETA(DisplayName = "Backward Right"),
+	LSD_BackwardLeft	UMETA(DisplayName = "Backward Left"),
+};
+
+UENUM(BlueprintType)
+enum class ELocomotionState : uint8
+{
+	ELS_Idle		UMETA(DisplayName = "Idle"),
+	ELS_Pivoting	UMETA(DisplayName = "Pivoting"),
+	ELS_Walk		UMETA(DisplayName = "Walk"),
+	ELS_Run			UMETA(DisplayName = "Run"),
+	ELS_Sprint		UMETA(DisplayName = "Sprint")
+};
+
 /**
  * Main Animation Instance for the First Person Character.
  * * ARCHITECTURE:
@@ -47,6 +76,8 @@ public:
 	// Called every frame. This is the main update loop.
 	// Runs on Game Thread -> Safe to access Character & MovementComponent.
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	
+	virtual void NativePostEvaluateAnimation() override;
 
 protected:
 	
@@ -68,7 +99,20 @@ protected:
 	// Current velocity vector (World Space)
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	FVector Velocity;
+	
+	// Current velocity vector (World Space)
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	FVector Velocity2D;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	FVector Acceleration;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	FVector InputVector;
 
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	float Speed3D;
+	
 	// Speed across the ground (ignoring Z/Vertical movement)
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	float GroundSpeed;
@@ -101,6 +145,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	bool bIsAiming;
 	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
+	bool bIsArmed;
+	
 	// The "Source of Truth" state struct replicated from the Character
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Essential Data")
 	FCharacterLayerStates LayerStates;
@@ -115,6 +162,15 @@ protected:
 	// Direction (-180 to 180) relative to Actor Rotation
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
 	float Direction = 0.f; 
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
+	ELocomotionState LocomotionState = ELocomotionState::ELS_Idle;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
+	ECardinalDirection CardinalDirection = ECardinalDirection::ECD_Forward;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
+	float OrientationWarpingAngle;
 
 	// Smoothed/Cached direction
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Locomotion")
@@ -204,6 +260,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	FRotator HandRotation;
 	
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|FABRIK")
+	FTransform LeftHandTargetTransform;
+	
 	// Transition speeds loaded from Weapon Config
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Positioning")
 	float TimeToAim;
@@ -225,18 +284,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
 	FVector CurrentRightHandJointTargetLocation;
 	
-	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
-	FVector CurrentLeftHandEffectorLocation;
-	
-	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|Two Bone IK")
-	FVector CurrentLeftHandJointTargetLocation;
-	
 	// Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.)
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerAnimInstance|Aiming|State")
 	int32 CurrentSightIndex = 0;
-	
-	// The target transform we want to reach (Either Hip or ADS)
-	FTransform TargetHandTransform;
     
 	// Add this struct inside your Class or above it
 	struct FCachedSightData
@@ -301,7 +351,7 @@ protected:
 	// Higher = Snappier. Lower = Smoother (but "laggier"). 
 	// Start with 15.0f.
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|AimOffset")
-	float PitchPerBoneInterpSpeed = 15.0f;
+	float PitchPerBoneInterpSpeed = 10.0f;
 	
 	// --- SKELETON CONFIGURATION ---
 	
@@ -315,12 +365,12 @@ protected:
 	
 	// Defines the speed at which the character is considered "Walking" (Gait 1.0)
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Dynamic Speeds")
-	float WalkSpeed = 150.f;
+	float WalkSpeed = 200.f;
 	float WalkGaitValue = 1.f;
 
 	// Defines the speed at which the character is considered "Running" (Gait 2.0)
 	UPROPERTY(EditDefaultsOnly, Category = "PlayerAnimInstance|Configuration|Dynamic Speeds")
-	float RunSpeed = 300.f;
+	float RunSpeed = 400.f;
 	float RunGaitValue = 2.f;
 	
 	// Defines the speed at which the character is considered "Sprinting" (Gait 3.0)
@@ -334,22 +384,65 @@ private:
 	void UpdateReferences();
 	void CalculateEssentialData();
 	void CalculateLocomotionDirection();
+	void CalculateCardinalDirection();
+	void CalculateOrientationWarpingAngle();
 	void CalculateMovementDirectionMode();
 	void CalculateGaitValue();
 	void CalculatePlayRate();
 	void CalculatePitchValuePerBone();
 	void CalculateAimOffset();
 	void CalculateTurnInPlace();
+	void CalculateLeftHandTransform();
 	
 	/**
 	 * Calculates the precise hand offsets needed to align the weapon sights with the camera.
 	 * This is an EVENT-BASED calculation (runs only when weapon changes), not per-frame.
 	 */
 	void CalculateHandTransforms();
+
+	/**
+	 * New Locomotion System Functions
+	 */
+	void CalculateLocomotionState();
 	
+	void CalculateCharacterRotation();
+	
+	void CalculateRotationWhileMoving();
+	
+	void CalculateLocomotionStartDirection(float StartAngle);
+	
+	/**
+	 * Delegates
+	 */
 	// Event listener: Fires when the Combat Component successfully equips a new gun
 	UFUNCTION()
 	void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
 	
 	FDelegateHandle OnWeaponEquippedDelegateHandle;
+	
+protected:
+	
+	UPROPERTY(BlueprintReadOnly)
+	FRotator StartRotation;
+	
+	UPROPERTY(BlueprintReadOnly)
+	FRotator PrimaryRotation;
+	
+	UPROPERTY(BlueprintReadOnly)
+	FRotator SecondaryRotation;
+	
+	UPROPERTY(BlueprintReadOnly)
+	float LocomotionStartAngle;
+	
+	UPROPERTY(BlueprintReadOnly)
+	ELocomotionStartDirection LocomotionStartDirection;
+	
+	UPROPERTY(BlueprintReadOnly)
+	float LocomotionPlayRate;
+		
+	UFUNCTION(BlueprintCallable)
+	void UpdateOnRunEnter();
+	
+	UFUNCTION(BlueprintCallable)
+	void UpdateLocomotionPlayRate();
 };

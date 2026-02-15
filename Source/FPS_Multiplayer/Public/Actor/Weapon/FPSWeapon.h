@@ -134,9 +134,7 @@ public:
     
     // --- IK Locators ---
     FORCEINLINE FVector GetRightHandEffectorLocation() const { return WeaponData ? WeaponData->RightHandEffectorLocation : FVector::ZeroVector; }
-    FORCEINLINE FVector GetLeftHandEffectorLocation() const { return WeaponData ? WeaponData->LeftHandEffectorLocation : FVector::ZeroVector; }
     FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightHandJointTargetLocation : FVector::ZeroVector; }
-    FORCEINLINE FVector GetLeftHandJointTargetLocation() const { return WeaponData ? WeaponData->LeftHandJointTargetLocation : FVector::ZeroVector; }
 
     // --- Sight Config ---
     FORCEINLINE FName GetOpticSocketName() const { return WeaponData ? WeaponData->OpticSocketName : FName(); }

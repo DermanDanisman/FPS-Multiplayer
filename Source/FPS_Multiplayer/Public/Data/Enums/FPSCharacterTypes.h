@@ -39,8 +39,9 @@ UENUM(BlueprintType)
 enum class EOverlayState : uint8
 {
 	EOS_Unarmed     UMETA(DisplayName = "Unarmed"),
-	EOS_Rifle       UMETA(DisplayName = "Rifle"),
-	EOS_Pistol      UMETA(DisplayName = "Pistol")
+	EOS_Rifle       UMETA(DisplayName = "Rifle (2 Handed)"),
+	EOS_Pistol      UMETA(DisplayName = "Pistol (1 or 2 Handed)"),
+	EOS_Knife       UMETA(DisplayName = "Knife (1 Handed)"),
 };
 
 // LAYER 5: The Aiming State (How are we targeting?)

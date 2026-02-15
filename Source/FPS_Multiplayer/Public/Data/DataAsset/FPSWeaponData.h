@@ -19,6 +19,9 @@ struct FWeaponMovementData
 {
 	GENERATED_BODY()
 	
+	// --- THE FIX ---
+	// Now you can choose Pistol, Rifle, Unarmed, etc. in the Data Asset!
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Animation State")
 	EOverlayState OverlayState = EOverlayState::EOS_Rifle;
 
 	// --- PHYSICAL LIMITS (CharacterMovementComponent) ---
@@ -78,6 +81,16 @@ public:
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Mesh")
 	FName MuzzleSocketName = "Muzzle";
+	
+	// --- MOVEMENT DATA ---
+
+	/** * Configuration for how this weapon affects player movement physics and animation.
+	 * @usage 
+	 * 1. Physics: Sets the CharacterMovementComponent's MaxWalkSpeed (e.g., Heavy weapons make you slow).
+	 * 2. Animation: Sets the "Reference Speeds" for Stride Warping to prevent foot sliding.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Movement")
+	FWeaponMovementData WeaponMovementData;
 
 	// --- COMBAT STATS ---
     
@@ -191,19 +204,6 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
 	FVector RightHandJointTargetLocation = FVector(-68.f, 40.f, 113.f);
-
-    /** * The target location for the Left Hand IK Effector (relative to the weapon root).
-     * @usage Adjust this to make the left hand firmly grip the handguard or foregrip.
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
-    FVector LeftHandEffectorLocation;
-
-    /** * The Pole Vector target for the Left Elbow.
-     * @usage Controls the direction the left elbow points. Move this if the arm looks broken or flips incorrectly.
-     * @default (X=98.0, Y=12.2, Z=-52.7)
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
-    FVector LeftHandJointTargetLocation = FVector(98.f, 12.f, -52.5f); 
 	
 	// --- ANIMATION TIMING (Visuals) ---
 
@@ -271,14 +271,4 @@ public:
      */
     UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
     FString RearSightTagPrefix = TEXT("RearSight");
-
-    // --- MOVEMENT DATA ---
-
-    /** * Configuration for how this weapon affects player movement physics and animation.
-     * @usage 
-     * 1. Physics: Sets the CharacterMovementComponent's MaxWalkSpeed (e.g., Heavy weapons make you slow).
-     * 2. Animation: Sets the "Reference Speeds" for Stride Warping to prevent foot sliding.
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Movement")
-    FWeaponMovementData WeaponMovementData;
 };

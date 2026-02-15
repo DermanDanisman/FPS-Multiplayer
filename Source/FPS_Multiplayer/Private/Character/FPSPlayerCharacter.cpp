@@ -41,6 +41,10 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	SpringArmComponent->SetupAttachment(GetMesh(), FName("CameraSocket")); // Ensure this socket exists on your mesh!
 	SpringArmComponent->TargetArmLength = 0.0f; // FPS view usually has 0 length
 	SpringArmComponent->bUsePawnControlRotation = true; // Rotate arm with controller*/
+	
+	// This disables anim curve processing. Anim Curves cannot be read while this is true!
+	GetMesh()->SetAllowAnimCurveEvaluation(false);
+
 
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	CameraComponent->SetupAttachment(GetMesh(), FName("CameraSocket"));
@@ -178,24 +182,23 @@ void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 	// REPLICATION RULE: COND_SkipOwner
 	// We do NOT send this packet to the player who owns this character.
 	// Sending input back to the player who created it wastes bandwidth.
-	DOREPLIFETIME_CONDITION(ThisClass, ReplicatedControlRotation, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, PackedControlRotation, COND_SkipOwner);
 }
 
 void AFPSPlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	
+	DeltaSeconds = DeltaTime;
+	
 	// SERVER LOGIC: Capture & Compress
 	// We need to capture the rotation on the Server so it can be sent to other clients.
 	// We verify 'HasAuthority' because only the Server can replicate variables to others.
-	if (HasAuthority())
+	if (HasAuthority() && GetController())
 	{
-		if (AController* PC = GetController())
-		{
-			// Capture the Controller's rotation (where the player is looking)
-			// and compress it into our 16-bit struct immediately.
-			ReplicatedControlRotation.SetFromRotator(PC->GetControlRotation());
-		}
+		FRotator CurrentRot = GetController()->GetControlRotation();
+		// Use Unreal's native bit-packing function (16 bits each)
+		PackedControlRotation = UCharacterMovementComponent::PackYawAndPitchTo32(CurrentRot.Yaw, CurrentRot.Pitch);
 	}
 }
 
@@ -352,60 +355,66 @@ void AFPSPlayerCharacter::OnEndCrouch(float HeightAdjust, float ScaledHeightAdju
 
 void AFPSPlayerCharacter::OnFirePressed()
 {
-	// 1. INTERRUPT: Sprint-Out
-	// If we are sprinting, force the state to Running immediately.
-	StopSprinting(); // 1. Handle Interrupts
-
 	// 2. PERMISSION
 	// Now that Gait is 'Running', CanFire() will pass (assuming we have ammo).
 	if (CanFire())
 	{
+		// 1. INTERRUPT: Sprint-Out
+		// If we are sprinting, force the state to Running immediately.
+		StopSprinting(); // 1. Handle Interrupts
 		CombatComponent->StartFire();
 	}
 }
 
 void AFPSPlayerCharacter::OnFireReleased()
 {
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return;
+	
 	CombatComponent->StopFire();
 	if (bWantsToSprint) TryStartSprinting(); // Resume!
 }
 
 void AFPSPlayerCharacter::OnReloadPressed()
 {
-	// 1. INTERRUPT: Sprint-Out
-	// If we are sprinting, force the state to Running immediately.
-	StopSprinting(); // 1. Handle Interrupts
-    
 	// 2. PERMISSION
 	if (CanReload())
 	{
+		// 1. INTERRUPT: Sprint-Out
+		// If we are sprinting, force the state to Running immediately.
+		StopSprinting(); // 1. Handle Interrupts
 		CombatComponent->Reload();
 	}
 }
 
 void AFPSPlayerCharacter::OnAimPressed()
 {
-	// 1. INTERRUPT: Sprint-Out
-	// If we are sprinting, force the state to Running immediately.
-	StopSprinting(); // 1. Handle Interrupts
-	
 	if (CanAim())
 	{
+		// 1. INTERRUPT: Sprint-Out
+		// If we are sprinting, force the state to Running immediately.
+		StopSprinting(); // 1. Handle Interrupts
+		
+		//CameraComponent->FieldOfView = FMath::FInterpTo(CameraComponent->FieldOfView, 60.f, DeltaSeconds, 10.f);
 		SetAimState(EAimState::EAS_ADS);
+		OnAimStateChanged.Broadcast(LayerStates.AimState);
 	}
 }
 
 void AFPSPlayerCharacter::OnAimReleased()
 {
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return;
+	
 	SetAimState(EAimState::EAS_None);
+	//CameraComponent->FieldOfView = FMath::FInterpTo(CameraComponent->FieldOfView, 90.f, DeltaSeconds, 5.f);
 	if (bWantsToSprint) TryStartSprinting(); // Resume!
+	OnAimStateChanged.Broadcast(EAimState::EAS_None);
 }
 
 void AFPSPlayerCharacter::SetAimState(EAimState NewState)
 {
 	// 1. Prediction: Update locally immediately so it feels responsive
 	LayerStates.AimState = NewState;
-	OnAimStateChanged.Broadcast(NewState);
+	OnAimStateChanged.Broadcast(LayerStates.AimState);
 	
 	// 2. Replication: Tell the Server
 	if (!HasAuthority())
@@ -524,7 +533,7 @@ void AFPSPlayerCharacter::PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMon
 
 bool AFPSPlayerCharacter::CanSprint() const
 {
-	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
 	if (GetCharacterMovement()->IsFalling()) return false;
 	return true;
 }
@@ -538,13 +547,13 @@ bool AFPSPlayerCharacter::CanCrouch() const
 bool AFPSPlayerCharacter::CanAim() const
 {
 	// Safety First: If the component is missing, we definitely can't aim.
-	if (!GetCombatComponent()) return false;
+	if (!CombatComponent && !CombatComponent->GetEquippedWeapon()) return false;
 	
 	// STRICT RULE: Cannot aim if sprinting.
 	if (LayerStates.Gait == EGait::EG_Sprinting) return false;
 	
-	if (GetCombatComponent()->GetEquippedWeapon() == nullptr) return false;
-	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (CombatComponent->GetEquippedWeapon() == nullptr) return false;
+	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
 	return true;
 }
 
@@ -557,24 +566,24 @@ bool AFPSPlayerCharacter::CanFire() const
 	// Use the LayerState (Replicated), not the Component state, to ensure client/server agree.
 	if (LayerStates.Gait == EGait::EG_Sprinting) return false;
 	
-	if (GetCombatComponent()->GetEquippedWeapon() == nullptr) return false;
-	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
-	if (GetCombatComponent()->GetEquippedWeapon()->GetCurrentClipAmmo() <= 0) return false;
+	if (CombatComponent->GetEquippedWeapon() == nullptr) return false;
+	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (CombatComponent->GetEquippedWeapon()->GetCurrentClipAmmo() <= 0) return false;
 	return true;
 }
 
 bool AFPSPlayerCharacter::CanReload() const
 {
 	// Safety First: If the component is missing, we definitely can't reload.
-	if (!GetCombatComponent()) return false;
+	if (!CombatComponent && !CombatComponent->GetEquippedWeapon()) return false;
 	
 	// STRICT RULE: Cannot reload if sprinting.
 	if (LayerStates.Gait == EGait::EG_Sprinting) return false;
 	
-	if (GetCombatComponent()->GetEquippedWeapon() == nullptr) return false;
-	if (GetCombatComponent()->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
-	if (GetCombatComponent()->GetEquippedWeapon()->GetCurrentClipAmmo() >= GetCombatComponent()->GetEquippedWeapon()->GetMaxClipAmmo()) return false;
-	if (GetCombatComponent()->GetCarriedAmmo() <= 0) return false;
+	if (CombatComponent->GetEquippedWeapon() == nullptr) return false;
+	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
+	if (CombatComponent->GetEquippedWeapon()->GetCurrentClipAmmo() >= CombatComponent->GetEquippedWeapon()->GetMaxClipAmmo()) return false;
+	if (CombatComponent->GetCarriedAmmo() <= 0) return false;
 	if (GetCharacterMovement()->IsFalling()) return false;
 	return true;
 }
@@ -619,7 +628,20 @@ FRotator AFPSPlayerCharacter::GetReplicatedControlRotation() const
 	// CASE B: We are looking at someone else (Simulated Proxy)
 	// This character is controlled by another player or the server.
 	// I don't know their input. I must rely on the replicated data packet.
-	// Decompress the 16-bit integers back into floats.
-	return ReplicatedControlRotation.ToRotator();
+	// Decompress the 32-bit integer back into a Rotator
+	FRotator DecompressedRot;
+    
+	// The Pitch is stored in the lower 16 bits
+	uint16 PitchShort = (PackedControlRotation & 0xFFFF);
+    
+	// The Yaw is stored in the upper 16 bits (Shift right by 16)
+	uint16 YawShort = (PackedControlRotation >> 16);
+
+	// Use Unreal's native decompression
+	DecompressedRot.Pitch = FRotator::DecompressAxisFromShort(PitchShort);
+	DecompressedRot.Yaw   = FRotator::DecompressAxisFromShort(YawShort);
+	DecompressedRot.Roll  = 0.f;
+
+	return DecompressedRot;
 }
 
