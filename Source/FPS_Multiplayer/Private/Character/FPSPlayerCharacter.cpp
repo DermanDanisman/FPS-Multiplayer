@@ -8,6 +8,7 @@
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Animation/FPSAnimInstance.h"
 #include "Camera/CameraComponent.h"
+#include "Component/FPSCharacterMovementComponent.h"
 #include "Component/FPSCombatComponent.h"
 #include "Component/FPSInteractionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -16,35 +17,16 @@
 #include "Player/FPSPlayerState.h"
 #include "UI/HUD/FPSHUD.h"
 
-
-AFPSPlayerCharacter::AFPSPlayerCharacter()
+AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UFPSCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = true;
+	bReplicates = true;
+	SetReplicatingMovement(true);
 	
-	/*// Create the Shadow Mesh
-	ShadowMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ShadowMesh"));
-	ShadowMesh->SetupAttachment(GetMesh()); // Attach to main mesh logic
-    
-	// CRITICAL SETTINGS:
-	ShadowMesh->SetCastShadow(true);            // We WANT shadows
-	ShadowMesh->SetRenderInMainPass(false);     // We DO NOT want to see the mesh itself
-	ShadowMesh->SetCastHiddenShadow(true);      // Allow casting even if "hidden" logic applies
-    
-	// Optimization: Disable collision and ticking (it will follow Master Pose)
-	ShadowMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ShadowMesh->SetComponentTickEnabled(false);*/
-	
-	// 1. CAMERA SETUP (FPS Style)
-	// We usually attach the camera directly to the mesh or a socket for FPS,
-	// but a SpringArm is fine if you want flexibility (e.g., death cam).
-	/*SpringArmComponent = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArmComponent"));
-	SpringArmComponent->SetupAttachment(GetMesh(), FName("CameraSocket")); // Ensure this socket exists on your mesh!
-	SpringArmComponent->TargetArmLength = 0.0f; // FPS view usually has 0 length
-	SpringArmComponent->bUsePawnControlRotation = true; // Rotate arm with controller*/
-	
-	// This disables anim curve processing. Anim Curves cannot be read while this is true!
-	GetMesh()->SetAllowAnimCurveEvaluation(false);
-
+	// Critical: Ensures the Server calculates the animation (and curves) 
+	// even though it isn't rendering the graphics.
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	CameraComponent->SetupAttachment(GetMesh(), FName("CameraSocket"));
@@ -52,23 +34,64 @@ AFPSPlayerCharacter::AFPSPlayerCharacter()
 	CameraComponent->bEnableFirstPersonFieldOfView = true;
 	CameraComponent->bEnableFirstPersonScale = true;
 	
-	CombatComponent = CreateDefaultSubobject<UFPSCombatComponent>("CombatComponent");
+	CombatComponent = CreateDefaultSubobject<UFPSCombatComponent>(TEXT("CombatComponent"));
 	CombatComponent->SetIsReplicated(true);
 	
-	InteractionComponent = CreateDefaultSubobject<UFPSInteractionComponent>("InteractionComponent");
+	InteractionComponent = CreateDefaultSubobject<UFPSInteractionComponent>(TEXT("InteractionComponent"));
 
 	// 2. MOVEMENT SETTINGS
 	// For FPS, we typically want the character to rotate with the camera
 	bUseControllerRotationYaw = true;
 	// Disable standard camera smoothing because our SpringArm/Camera is attached to the Mesh Socket.
 	// We want the Animation to drive the camera movement 100%.
-	GetCharacterMovement()->bCrouchMaintainsBaseLocation = true;
-	GetCharacterMovement()->bOrientRotationToMovement = false; // Strafing behavior
-	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
-	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanWalk = true;
-	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
-	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanJump = true;
-	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanSwim = true;
+	// Assign to the Class Member (FPSMovementComponent), do not create a local variable.
+    FPSMovementComponent = CastChecked<UFPSCharacterMovementComponent>(ThisClass::GetMovementComponent());
+	FPSMovementComponent->SetIsReplicated(true);
+	FPSMovementComponent->bCrouchMaintainsBaseLocation = true;
+	FPSMovementComponent->GravityScale = 1.0f;
+	FPSMovementComponent->MaxAcceleration = 3200.0f;
+	FPSMovementComponent->BrakingFrictionFactor = 1.0f;
+	FPSMovementComponent->BrakingFriction = 6.0f;
+	FPSMovementComponent->GroundFriction = 8.0f;
+	FPSMovementComponent->BrakingDecelerationWalking = 3200.0f;
+	FPSMovementComponent->bUseControllerDesiredRotation = false;
+	FPSMovementComponent->bOrientRotationToMovement = false;
+	FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetRunSpeed();
+	FPSMovementComponent->GetNavAgentPropertiesRef().bCanWalk = true;
+	FPSMovementComponent->GetNavAgentPropertiesRef().bCanCrouch = true;
+	FPSMovementComponent->GetNavAgentPropertiesRef().bCanJump = true;
+	FPSMovementComponent->GetNavAgentPropertiesRef().bCanSwim = true;
+}
+
+void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	DOREPLIFETIME_CONDITION(ThisClass, LayerStates, COND_SkipOwner);
+	
+	// REPLICATION RULE: COND_SkipOwner
+	// We do NOT send this packet to the player who owns this character.
+	// Sending input back to the player who created it wastes bandwidth.
+	DOREPLIFETIME_CONDITION(ThisClass, PackedControlRotation, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, ReplicatedAcceleration, COND_SimulatedOnly);
+}
+
+void AFPSPlayerCharacter::PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker)
+{
+	Super::PreReplication(ChangedPropertyTracker);
+	
+	if (UCharacterMovementComponent* MovementComponent = FPSMovementComponent)
+	{
+		// Compress Acceleration: XY components as direction + magnitude, Z component as direct value
+		const double MaxAccel = MovementComponent->MaxAcceleration;
+		const FVector CurrentAccel = MovementComponent->GetCurrentAcceleration();
+		double AccelXYRadians, AccelXYMagnitude;
+		FMath::CartesianToPolar(CurrentAccel.X, CurrentAccel.Y, AccelXYMagnitude, AccelXYRadians);
+
+		ReplicatedAcceleration.AccelXYRadians   = FMath::FloorToInt((AccelXYRadians / TWO_PI) * 255.0);     // [0, 2PI] -> [0, 255]
+		ReplicatedAcceleration.AccelXYMagnitude = FMath::FloorToInt((AccelXYMagnitude / MaxAccel) * 255.0);	// [0, MaxAccel] -> [0, 255]
+		ReplicatedAcceleration.AccelZ           = FMath::FloorToInt((CurrentAccel.Z / MaxAccel) * 127.0);   // [-MaxAccel, MaxAccel] -> [-127, 127]
+	}
 }
 
 void AFPSPlayerCharacter::PossessedBy(AController* NewController)
@@ -82,18 +105,18 @@ void AFPSPlayerCharacter::PossessedBy(AController* NewController)
 			// --- Player-controlled character setup ---
 
 			// Get the custom PlayerState class.
-			AFPSPlayerState* TDPlayerState = GetPlayerState<AFPSPlayerState>();
+			AFPSPlayerState* PS = GetPlayerState<AFPSPlayerState>();
 			
 			// In multiplayer, only the locally controlled character on each client will have a valid PlayerController pointer.
 			// For other (non-local) characters on that client, PlayerController will be nullptr. This is expected.
-			AFPSPlayerController* TDPlayerController = Cast<AFPSPlayerController>(CharacterController);
-			if (TDPlayerController)
+			AFPSPlayerController* PC = Cast<AFPSPlayerController>(CharacterController);
+			if (PC)
 			{
 				// Get the custom HUD and initialize it with all gameplay references.
-				AFPSHUD* FPSHUD = Cast<AFPSHUD>(TDPlayerController->GetHUD());
+				AFPSHUD* FPSHUD = Cast<AFPSHUD>(PC->GetHUD());
 				if (FPSHUD)
 				{
-					FPSHUD->InitializeOverlayWidget(TDPlayerController, TDPlayerState);
+					FPSHUD->InitializeOverlayWidget(PC, PS);
 				}
 			}
 		}
@@ -111,18 +134,18 @@ void AFPSPlayerCharacter::OnRep_PlayerState()
 			// --- Player-controlled character setup ---
 
 			// Get the custom PlayerState class.
-			AFPSPlayerState* TDPlayerState = GetPlayerState<AFPSPlayerState>();
+			AFPSPlayerState* PS = GetPlayerState<AFPSPlayerState>();
 			
 			// In multiplayer, only the locally controlled character on each client will have a valid PlayerController pointer.
 			// For other (non-local) characters on that client, PlayerController will be nullptr. This is expected.
-			AFPSPlayerController* TDPlayerController = Cast<AFPSPlayerController>(CharacterController);
-			if (TDPlayerController)
+			AFPSPlayerController* PC = Cast<AFPSPlayerController>(CharacterController);
+			if (PC)
 			{
 				// Get the custom HUD and initialize it with all gameplay references.
-				AFPSHUD* FPSHUD = Cast<AFPSHUD>(TDPlayerController->GetHUD());
+				AFPSHUD* FPSHUD = Cast<AFPSHUD>(PC->GetHUD());
 				if (FPSHUD)
 				{
-					FPSHUD->InitializeOverlayWidget(TDPlayerController, TDPlayerState);
+					FPSHUD->InitializeOverlayWidget(PC, PS);
 				}
 			}
 		}
@@ -149,40 +172,7 @@ void AFPSPlayerCharacter::BeginPlay()
 		}
 	}
 	
-	/*if (IsLocallyControlled())
-	{
-		// 1. Setup Main Mesh (Visuals) - HIDE HEAD
-		GetMesh()->HideBoneByName(FName("head"), EPhysBodyOp::PBO_None);
-
-		// 2. Setup Shadow Mesh (Shadows) - SHOW HEAD
-        
-		// A. Ensure it uses the same mesh asset
-		ShadowMesh->SetSkinnedAssetAndUpdate(GetMesh()->GetSkinnedAsset());
-
-		// C. Visibility Settings
-		ShadowMesh->SetCastShadow(true);
-		ShadowMesh->SetRenderInMainPass(false); // Invisible to camera
-		ShadowMesh->SetCastHiddenShadow(true);  // Casts shadow anyway
-		ShadowMesh->SetHiddenInGame(false);     // Component is "Active"
-	}
-	else
-	{
-		// Remote players just see the main mesh normally
-		ShadowMesh->SetHiddenInGame(true);
-		ShadowMesh->SetCastShadow(false); 
-	}*/
-}
-
-void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	
-	DOREPLIFETIME_CONDITION(ThisClass, LayerStates, COND_None);
-	
-	// REPLICATION RULE: COND_SkipOwner
-	// We do NOT send this packet to the player who owns this character.
-	// Sending input back to the player who created it wastes bandwidth.
-	DOREPLIFETIME_CONDITION(ThisClass, PackedControlRotation, COND_SkipOwner);
+	UpdateGait();
 }
 
 void AFPSPlayerCharacter::Tick(float DeltaTime)
@@ -190,15 +180,15 @@ void AFPSPlayerCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	
 	DeltaSeconds = DeltaTime;
-	
-	// SERVER LOGIC: Capture & Compress
-	// We need to capture the rotation on the Server so it can be sent to other clients.
-	// We verify 'HasAuthority' because only the Server can replicate variables to others.
-	if (HasAuthority() && GetController())
+    
+	// Keep your PackedControlRotation logic inside "if (HasAuthority())" strictly!
+	if (HasAuthority())
 	{
-		FRotator CurrentRot = GetController()->GetControlRotation();
-		// Use Unreal's native bit-packing function (16 bits each)
-		PackedControlRotation = UCharacterMovementComponent::PackYawAndPitchTo32(CurrentRot.Yaw, CurrentRot.Pitch);
+		if (GetController())
+		{
+			FRotator CurrentRot = GetController()->GetControlRotation();
+			PackedControlRotation = UCharacterMovementComponent::PackYawAndPitchTo32(CurrentRot.Yaw, CurrentRot.Pitch);
+		}
 	}
 }
 
@@ -289,37 +279,25 @@ void AFPSPlayerCharacter::Look(const FInputActionValue& Value)
 
 void AFPSPlayerCharacter::OnWalkPressed()
 {
-	// 1. Update Speed Locally (Prediction)
-	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
-
-	// 2. Update State
-	SetGaitState(EGait::EG_Walking);
+	bWantsToWalk = true;
+	UpdateGait(); // Central Resolver
 }
 
 void AFPSPlayerCharacter::OnWalkReleased()
 {
-	// 1. Restore Speed Locally
-	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
-
-	// 2. Update State
-	SetGaitState(EGait::EG_Running);
+	bWantsToWalk = false;
+	UpdateGait();
 }
 
 void AFPSPlayerCharacter::OnSprintPressed()
 {
-	bWantsToSprint = true; 
-	TryStartSprinting();
+	bWantsToSprint = true;
+	UpdateGait();
 }
 void AFPSPlayerCharacter::OnSprintReleased()
 {
-	bWantsToSprint = false; 
-    
-	// If we are currently sprinting, stop.
-	if (LayerStates.Gait == EGait::EG_Sprinting)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
-		SetGaitState(EGait::EG_Running);
-	}
+	bWantsToSprint = false;
+	UpdateGait();
 }
 
 void AFPSPlayerCharacter::OnCrouchPressed()
@@ -441,11 +419,27 @@ void AFPSPlayerCharacter::OnInteractedPressed(const FInputActionValue& Value)
 
 void AFPSPlayerCharacter::SetGaitState(EGait NewState)
 {
-	// 1. Prediction: Update locally immediately
+	if (!FPSMovementComponent) return;
+	
+	// 1. Prediction (Client Visuals)
 	LayerStates.Gait = NewState;
 	OnGaitStateChanged.Broadcast(NewState);
+	
+	FWeaponMovementData MovementData;
+	MovementData.AnimRunRefSpeed = FPSMovementComponent->GetRunSpeed();
+	MovementData.AnimWalkRefSpeed = FPSMovementComponent->GetWalkSpeed();
+	MovementData.AnimSprintRefSpeed = FPSMovementComponent->GetSprintSpeed();
+	FPSMovementComponent->UpdateMovementSettings(MovementData);
 
-	// 2. Replication: Tell the Server
+	// 2. Physical Movement Speed (Apply immediately for responsiveness)
+	if (NewState == EGait::EG_Sprinting)
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetSprintSpeed();
+	else if (NewState == EGait::EG_Walking)
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetWalkSpeed();
+	else
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetRunSpeed();
+
+	// 3. Replication (Server)
 	if (!HasAuthority())
 	{
 		Server_SetGaitState(NewState);
@@ -453,52 +447,58 @@ void AFPSPlayerCharacter::SetGaitState(EGait NewState)
 }
 
 void AFPSPlayerCharacter::Server_SetGaitState_Implementation(EGait NewState)
-{
-	// Server updates authoritative copy
+{	
+	if (!FPSMovementComponent) return;
+	
+	// 1. Update State
 	LayerStates.Gait = NewState;
+	
+	FWeaponMovementData MovementData;
+	MovementData.AnimRunRefSpeed = FPSMovementComponent->GetRunSpeed();
+	MovementData.AnimWalkRefSpeed = FPSMovementComponent->GetWalkSpeed();
+	MovementData.AnimSprintRefSpeed = FPSMovementComponent->GetSprintSpeed();
+	FPSMovementComponent->UpdateMovementSettings(MovementData);
     
-	// CRITICAL: This MUST match Client's UpdateMovementSettings logic exactly!
+	// 2. Update Physics Speed (CRITICAL for preventing Rubber Banding)
 	if (NewState == EGait::EG_Sprinting)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
-	}
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetSprintSpeed();
 	else if (NewState == EGait::EG_Walking)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
-	}
-	else // Running
-	{
-		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
-	}
-}
-
-void AFPSPlayerCharacter::UpdateMovementSettings(const FWeaponMovementData& NewData)
-{
-	// 1. Cache the values so we can swap back and forth
-	BaseWalkSpeed = NewData.MaxBaseSpeed;
-	WalkSpeed = NewData.AnimWalkRefSpeed;
-	SprintSpeed = NewData.AnimSprintRefSpeed; // Assumes this exists in your struct
-	GetCharacterMovement()->MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;
-
-	// 2. Apply the correct speed based on current state
-	if (GetGaitState() == EGait::EG_Walking)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
-	}
-	else if (GetGaitState() == EGait::EG_Sprinting)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
-	}
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetWalkSpeed();
 	else
-	{
-		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
-	}
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetRunSpeed();
 }
+
+
 
 void AFPSPlayerCharacter::SetOverlayState(EOverlayState NewState)
 {
 	LayerStates.OverlayState = NewState;
 	OnOverlayStateChanged.Broadcast(NewState);
+}
+
+void AFPSPlayerCharacter::OnRep_LayerStates()
+{
+	// This runs on Simulated Proxies when the Server updates the state.
+	// We use this to keep the visual speed sync logic in one place.
+    
+	// Ensure we apply the speed change to the Movement Component
+	if (LayerStates.Gait == EGait::EG_Sprinting)
+	{
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetSprintSpeed();
+	}
+	else if (LayerStates.Gait == EGait::EG_Walking)
+	{
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetWalkSpeed();
+	}
+	else
+	{
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetRunSpeed();
+	}
+    
+	// Optional: Broadcast delegates if UI needs to know
+	OnGaitStateChanged.Broadcast(LayerStates.Gait);
+	OnOverlayStateChanged.Broadcast(LayerStates.OverlayState);
+	OnAimStateChanged.Broadcast(LayerStates.AimState);
 }
 
 void AFPSPlayerCharacter::SetCurrentWeapon(AFPSWeapon* WeaponToEquip)
@@ -533,14 +533,16 @@ void AFPSPlayerCharacter::PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMon
 
 bool AFPSPlayerCharacter::CanSprint() const
 {
+	if (!CombatComponent) return true;
 	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
-	if (GetCharacterMovement()->IsFalling()) return false;
+	if (FPSMovementComponent->IsFalling()) return false;
 	return true;
 }
 
 bool AFPSPlayerCharacter::CanCrouch() const
 {
-	if (GetCharacterMovement()->IsFalling()) return false;
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return false;
+	if (FPSMovementComponent->IsFalling()) return false;
 	return Super::CanCrouch();
 }
 
@@ -584,7 +586,7 @@ bool AFPSPlayerCharacter::CanReload() const
 	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
 	if (CombatComponent->GetEquippedWeapon()->GetCurrentClipAmmo() >= CombatComponent->GetEquippedWeapon()->GetMaxClipAmmo()) return false;
 	if (CombatComponent->GetCarriedAmmo() <= 0) return false;
-	if (GetCharacterMovement()->IsFalling()) return false;
+	if (FPSMovementComponent->IsFalling()) return false;
 	return true;
 }
 
@@ -592,8 +594,25 @@ void AFPSPlayerCharacter::StopSprinting()
 {
 	if (LayerStates.Gait == EGait::EG_Sprinting)
 	{
-		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetRunSpeed();
 		SetGaitState(EGait::EG_Running);
+	}
+}
+
+void AFPSPlayerCharacter::OnRep_ReplicatedAcceleration()
+{
+	if (FPSMovementComponent)
+	{
+		// Decompress Acceleration
+		const double MaxAccel         = FPSMovementComponent->MaxAcceleration;
+		const double AccelXYMagnitude = double(ReplicatedAcceleration.AccelXYMagnitude) * MaxAccel / 255.0; // [0, 255] -> [0, MaxAccel]
+		const double AccelXYRadians   = double(ReplicatedAcceleration.AccelXYRadians) * TWO_PI / 255.0;     // [0, 255] -> [0, 2PI]
+
+		FVector UnpackedAcceleration(FVector::ZeroVector);
+		FMath::PolarToCartesian(AccelXYMagnitude, AccelXYRadians, UnpackedAcceleration.X, UnpackedAcceleration.Y);
+		UnpackedAcceleration.Z = double(ReplicatedAcceleration.AccelZ) * MaxAccel / 127.0; // [-127, 127] -> [-MaxAccel, MaxAccel]
+
+		FPSMovementComponent->SetReplicatedAcceleration(UnpackedAcceleration);
 	}
 }
 
@@ -601,14 +620,36 @@ void AFPSPlayerCharacter::StopSprinting()
 //                       HELPER FUNCTIONS
 // =========================================================================
 
+
 void AFPSPlayerCharacter::TryStartSprinting()
 {
 	// Local Check: Do we want to sprint? Are we allowed to?
 	if (bWantsToSprint && CanSprint()) 
 	{
 		// EXECUTE (Prediction)
-		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetSprintSpeed();
 		SetGaitState(EGait::EG_Sprinting); // This calls Server RPC internally!
+	}
+}
+
+void AFPSPlayerCharacter::UpdateGait()
+{
+	// 1. Calculate Desired Gait based on Priority
+	EGait DesiredGait = EGait::EG_Running; // Default
+
+	if (bWantsToSprint && CanSprint())
+	{
+		DesiredGait = EGait::EG_Sprinting;
+	}
+	else if (bWantsToWalk)
+	{
+		DesiredGait = EGait::EG_Walking;
+	}
+
+	// 2. Only update if changed (Optimization)
+	if (DesiredGait != LayerStates.Gait)
+	{
+		SetGaitState(DesiredGait);
 	}
 }
 
@@ -644,4 +685,3 @@ FRotator AFPSPlayerCharacter::GetReplicatedControlRotation() const
 
 	return DecompressedRot;
 }
-

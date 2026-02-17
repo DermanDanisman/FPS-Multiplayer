@@ -5,6 +5,7 @@
 
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Character/FPSPlayerCharacter.h"
+#include "Component/FPSCharacterMovementComponent.h"
 #include "GameFramework/Character.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
@@ -102,7 +103,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 			if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(GetOwner()))
 			{
 				// Server applies speed limits (Anti-Cheat / Logic)
-				FPSChar->UpdateMovementSettings(WeaponData);
+				FPSChar->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData);
 				FPSChar->SetOverlayState(WeaponData.OverlayState);
 			}
 			
@@ -159,7 +160,7 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 			const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
             
 			// Sync Movement Speed
-			FPSChar->UpdateMovementSettings(WeaponData); 
+			FPSChar->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData); 
             
 			// Sync Animation Pose
 			FPSChar->SetOverlayState(WeaponData.OverlayState); 

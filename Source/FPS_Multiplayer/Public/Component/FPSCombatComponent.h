@@ -7,7 +7,6 @@
 #include "Data/Enums/FPSCharacterTypes.h"
 #include "FPSCombatComponent.generated.h"
 
-class AFPSPlayerCharacter;
 class AFPSWeapon;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnCombatWeaponEquippedSignature, AFPSWeapon*);
@@ -25,7 +24,6 @@ class FPS_MULTIPLAYER_API UFPSCombatComponent : public UActorComponent
     
 public:
     UFPSCombatComponent();
-    friend AFPSPlayerCharacter;
     
     // --- DELEGATES ---
     FOnCombatWeaponEquippedSignature OnWeaponEquipped;

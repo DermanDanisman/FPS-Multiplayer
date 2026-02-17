@@ -11,8 +11,8 @@
 #include "Serialization/Archive.h" // Needed for serialization
 #include "FPSPlayerCharacter.generated.h"
 
+class UFPSCharacterMovementComponent;
 class UFPSInteractionComponent;
-struct FWeaponMovementData;
 class UFPSCombatComponent;
 class AFPSWeapon;
 class UInputAction;
@@ -72,28 +72,41 @@ struct FReplicatedControlRotation
 	}
 };
 
+/**
+ * FLyraReplicatedAcceleration: Compressed representation of acceleration
+ */
+USTRUCT()
+struct FReplicatedAcceleration
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	uint8 AccelXYRadians = 0;	// Direction of XY accel component, quantized to represent [0, 2*pi]
+
+	UPROPERTY()
+	uint8 AccelXYMagnitude = 0;	//Accel rate of XY component, quantized to represent [0, MaxAcceleration]
+
+	UPROPERTY()
+	int8 AccelZ = 0;	// Raw Z accel rate component, quantized to represent [-MaxAcceleration, MaxAcceleration]
+};
+
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnGaitChanged, EGait);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnOverlayStateChanged, EOverlayState);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnAimStateChanged, EAimState);
 
-UCLASS(PrioritizeCategories=("Components Player"))
+UCLASS()
 class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ACharacter, public IFPSWeaponHandlerInterface
 {
 	GENERATED_BODY()
 
 public:
-	AFPSPlayerCharacter();
-	
-	virtual void PossessedBy(AController* NewController) override;
-	
-	virtual void OnRep_PlayerState() override;
-	
+	AFPSPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+    
+	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 	virtual void Tick(float DeltaTime) override;
-	
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-	
-	// Called by CombatComponent when a weapon is equipped
-	void UpdateMovementSettings(const FWeaponMovementData& NewData);
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	
 	// =========================================================================
 	//                        DELEGATES
@@ -107,22 +120,25 @@ public:
 	//                        GETTER FUNCTIONS
 	// =========================================================================
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters")
+	UFUNCTION(BlueprintCallable, Category = "Getters")
 	FORCEINLINE UCameraComponent* GetCameraComponent() const { return CameraComponent; }
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters")
+	UFUNCTION(BlueprintCallable, Category = "Getters")
+	FORCEINLINE UFPSCharacterMovementComponent* GetFPSMovementComponent() const { return FPSMovementComponent ? FPSMovementComponent : nullptr; }
+	
+	UFUNCTION(BlueprintCallable, Category = "Getters")
 	FORCEINLINE UFPSCombatComponent* GetCombatComponent() const { return CombatComponent; }
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE FCharacterLayerStates GetLayerStates() const { return LayerStates; }
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE EGait GetGaitState() const { return LayerStates.Gait; }
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE EOverlayState GetOverlayState() const { return LayerStates.OverlayState; }
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE EAimState GetAimState() const { return LayerStates.AimState; }
 	
 	/**
@@ -131,22 +147,22 @@ public:
 	 * - Locally Controlled: Returns direct Input (Infinite precision, 0 latency).
 	 * - Simulated Proxy: Returns decompressed Network Data (High precision, interpolated).
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Player|Getters")
+	UFUNCTION(BlueprintCallable, Category = "Getters")
 	FRotator GetReplicatedControlRotation() const;
-	
+
 	// =========================================================================
 	//                        SETTER FUNCTIONS
 	// =========================================================================
 	
 	// Helper to change Gait state (Handles Local Prediction + RPC)
-	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Character States")
 	void SetGaitState(EGait NewState);
 	
-	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Character States")
 	void SetOverlayState(EOverlayState NewState);
 	
 	// Helper to change state (Handles Local Prediction + RPC)
-	UFUNCTION(BlueprintCallable, Category = "Player|Character States")
+	UFUNCTION(BlueprintCallable, Category = "Character States")
 	void SetAimState(EAimState NewState);
 	
 	// =========================================================================
@@ -158,9 +174,8 @@ public:
 
 protected:
 
-	virtual void BeginPlay() override;
-	
-	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
 	
 	virtual void OnStartCrouch(float HeightAdjust, float ScaledHeightAdjust) override;
 	virtual void OnEndCrouch(float HeightAdjust, float ScaledHeightAdjust) override;
@@ -169,38 +184,38 @@ protected:
 	//                        ENHANCED INPUT CONFIGURATION
 	// =========================================================================
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputMappingContext> PlayerCharacterMappingContext;
 	
 	// The specific actions
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> MoveAction;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> LookAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> WalkAction;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> JumpAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> CrouchAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> SprintAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> FireAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> ReloadAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> AimAction;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Enhanced Input")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> InteractAction;
 	
 	// A duplicate mesh used ONLY to cast shadows for the local player.
@@ -276,6 +291,9 @@ protected:
 	
 	UPROPERTY(Replicated)
 	FCharacterLayerStates LayerStates;
+	
+	UFUNCTION()
+	void OnRep_LayerStates();
 
 	/**
 	 * Stores the compressed Aim Direction for other clients to read.
@@ -286,6 +304,12 @@ protected:
 	 */
 	UPROPERTY(Replicated)
 	uint32 PackedControlRotation = 0;
+	
+	UPROPERTY(ReplicatedUsing = OnRep_ReplicatedAcceleration)
+	FReplicatedAcceleration ReplicatedAcceleration;
+	
+	UFUNCTION()
+	void OnRep_ReplicatedAcceleration();
 
 private:
 	
@@ -295,21 +319,14 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Components|Camera")
 	TObjectPtr<UCameraComponent> CameraComponent;
 	
+	UPROPERTY(VisibleAnywhere, Category = "Components|Movement")
+	TObjectPtr<UFPSCharacterMovementComponent> FPSMovementComponent;
+	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Actor Components")
 	TObjectPtr<UFPSCombatComponent> CombatComponent;
 	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Actor Components")
 	TObjectPtr<UFPSInteractionComponent> InteractionComponent;
-	
-	// Cache these values from UpdateMovementSettings so we can swap between them
-	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
-	float BaseWalkSpeed = 300.f;
-	
-	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
-	float WalkSpeed = 150.f;
-	
-	UPROPERTY(EditDefaultsOnly, Category = "Player|Config|Movement")
-	float SprintSpeed = 600.f;
 	
 	// =========================================================================
 	//                       HELPER FUNCTIONS & VARIABLES
@@ -317,7 +334,11 @@ private:
 	
 	bool bWantsToSprint = false;
 	
+	bool bWantsToWalk = false;
+	
 	float DeltaSeconds;
 	
 	void TryStartSprinting();
+	
+	void UpdateGait();
 };
