@@ -64,3 +64,13 @@ enum class ECombatState : uint8
 	ECS_ThrowingGrenade UMETA(DisplayName = "Throwing Grenade"),
 	ECS_SwappingWeapons UMETA(DisplayName = "Swapping Weapons")
 };
+
+UENUM(BlueprintType)
+enum class ETurnInPlace : uint8
+{
+	ETIP_None		UMETA(DisplayName = "Not Turning"),
+	ETIP_Left		UMETA(DisplayName = "Turning Left"),
+	ETIP_Right		UMETA(DisplayName = "Turning Right"),
+	ETIP_LeftBack	UMETA(DisplayName = "Turning Left Back"),
+	ETIP_RightBack	UMETA(DisplayName = "Turning Right Back")
+};

@@ -245,83 +245,87 @@ void UFPSAnimInstance::CalculatePitchValuePerBone()
 
 void UFPSAnimInstance::CalculateAimOffset()
 {
-    FRotator ControlRotation = GetFPSCharacter()->GetReplicatedControlRotation();
-    FRotator ActorRotation = GetFPSCharacter()->GetActorRotation();
-    FRotator AimOffset = UKismetMathLibrary::NormalizedDeltaRotator(ControlRotation, ActorRotation);
-    PitchOffset = AimOffset.Pitch;
+	// 1. Get fundamental rotations
+	FRotator ControlRotation = GetFPSCharacter()->GetReplicatedControlRotation();
+	FRotator ActorRotation = GetFPSCharacter()->GetActorRotation();
+    
+	// 2. Calculate Pitch (Standard Look Up/Down)
+	FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(ControlRotation, ActorRotation);
+	PitchOffset = DeltaRot.Pitch;
+
+	// 3. Handle Root Yaw (The Feet)
+	// If we are moving, the feet must align with the body immediately.
+	if (GroundSpeed > 5.0f || bIsFalling) 
+	{
+		RootYawOffset = 0.f;
+		TurnInPlace = ETurnInPlace::ETIP_None;
+        
+		// Reset rotation history so we don't snap when we stop
+		LastMovingRotation = ActorRotation; 
+		MovingRotation = ActorRotation;
+	}
+	else // WE ARE STANDING STILL
+	{
+		LastMovingRotation = MovingRotation;
+		MovingRotation = ActorRotation;
+
+		// Calculate how much the Capsule (Actor) rotated this frame
+		FRotator DeltaActorRot = UKismetMathLibrary::NormalizedDeltaRotator(MovingRotation, LastMovingRotation);
+        
+		// COUNTER-ROTATE: 
+		// If the capsule turned 5 degrees Right, subtract 5 from RootYawOffset 
+		// to keep the mesh looking like it stayed in the same world rotation.
+		const float YawDelta = DeltaActorRot.Yaw;
+        
+		// We accumulate the offset. 
+		// NOTE: We wrap this between -180 and 180 to prevent math errors on full spins.
+		RootYawOffset = UKismetMathLibrary::NormalizeAxis(RootYawOffset - YawDelta);
+
+		// 4. Check if we need to turn
+		CalculateTurnInPlace();
+	}
+    
+	// 5. Set YawOffset for Blendspaces (optional, depending on your setup)
+	YawOffset = RootYawOffset * -1.f;
 }
 
 void UFPSAnimInstance::CalculateTurnInPlace()
 {
-    // LOGIC:
-    // If we are moving, we reset the offsets because the character is physically turning.
-    // If we are idle, we accumulate the "RootYawOffset" which allows the mesh to stay still 
-    // while the capsule turns, until a threshold (TurnAngle) is reached.
-    
-    if (bIsFalling || GroundSpeed > 5.0f) // Moving
-    {
-       RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.0f, GetDeltaSeconds(), 5.f);
-       YawOffset = RootYawOffset * -1.f;
-       
-       MovingRotation = GetFPSCharacter()->GetActorRotation();
-       LastMovingRotation = MovingRotation;
-    }
-    else // Idle
-    {
-       LastRootYawOffset = RootYawOffset;
-       
-       // Capture Rotation Delta
-       if (MovingRotation == FRotator::ZeroRotator) LastMovingRotation = GetFPSCharacter()->GetActorRotation();
-       else LastMovingRotation = MovingRotation;
-       
-       MovingRotation = GetFPSCharacter()->GetActorRotation();
-       
-       FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(MovingRotation, LastMovingRotation);
-       float DeltaRootYawOffset = RootYawOffset - DeltaRot.Yaw;
-       
-       // If a "Turning" curve is playing (Animation driving the turn), we Interpolate.
-       // Otherwise, we map 1:1.
-       if (GetCurveValue("Turning") > 0.0f)
-       {
-          RootYawOffset = FMath::FInterpTo(LastRootYawOffset, DeltaRootYawOffset, GetDeltaSeconds(), 5.f);
-       }
-       else
-       {
-          RootYawOffset = DeltaRootYawOffset;
-       }
-       
-       YawOffset = RootYawOffset * -1.f;
+	// Threshold to trigger the turn animation (e.g., 90 degrees)
+	// You can make this smaller (e.g., 45 or 60) for more responsive feet.
+	const float TurnThreshold = TurnAngle; 
 
-       // Handle Distance Curve (Syncing animation foot placement with rotation)
-       if (GetCurveValue("Turning") > 0.0f)
-       {
-          LastDistanceCurve = DistanceCurve;
-          // Invert curve if turning opposite direction
-          bool bIsSmallerThanZero = (RootYawOffset < 0.0f);
-          if (RootYawOffset > 0.0f && !bIsSmallerThanZero)
-             DistanceCurve = GetCurveValue("DistanceCurve");
-          else
-             DistanceCurve = GetCurveValue("DistanceCurve") * -1.f;
-       }
-       
-       DeltaDistanceCurve = DistanceCurve - LastDistanceCurve;
-       
-       // Clamp to Max Angle
-       AbsoluteRootYawOffset = FMath::Abs(RootYawOffset);
-       if (AbsoluteRootYawOffset > TurnAngle)
-       {
-          YawExcess = AbsoluteRootYawOffset - TurnAngle;
-          if (RootYawOffset > 0.0f) RootYawOffset = RootYawOffset - YawExcess;
-          else RootYawOffset = RootYawOffset + YawExcess;
-       }
-       
-       // Calculate Yaw Rate (for BlendSpace selection)
-       float PreviousYawRate = LookingRotation.Yaw;
-       LookingRotation = GetFPSCharacter()->GetReplicatedControlRotation();
-       float DeltaYawRate = LookingRotation.Yaw - PreviousYawRate;
-       YawRate = UKismetMathLibrary::MapRangeClamped(
-          FMath::Abs(DeltaYawRate / GetDeltaSeconds()), 120.f, 600.f, 1.f, 3.f);
-    }
+	// CASE 1: We are not currently turning, checking if we should start.
+	if (TurnInPlace == ETurnInPlace::ETIP_None)
+	{
+		if (FMath::Abs(RootYawOffset) > TurnThreshold)
+		{
+			if (RootYawOffset > 0.f)
+			{
+				TurnInPlace = ETurnInPlace::ETIP_Right;
+			}
+			else
+			{
+				TurnInPlace = ETurnInPlace::ETIP_Left;
+			}
+		}
+	}
+    
+	// CASE 2: We ARE turning.
+	// Logic: We interpolate the Offset back to 0. 
+	// As RootYawOffset approaches 0, the "Rotate Root Bone" node in AnimGraph 
+	// applies less rotation, making the feet align with the capsule.
+	if (TurnInPlace != ETurnInPlace::ETIP_None)
+	{
+		// Interp to 0
+		RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.f, GetDeltaSeconds(), TurnInterpSpeed);
+
+		// If we are close enough to 0, we are done turning.
+		if (FMath::Abs(RootYawOffset) < 10.f) // 10 degrees tolerance
+		{
+			TurnInPlace = ETurnInPlace::ETIP_None;
+		}
+	}
 }
 
 void UFPSAnimInstance::CalculateLeftHandTransform()

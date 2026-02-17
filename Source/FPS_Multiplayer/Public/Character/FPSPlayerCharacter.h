@@ -135,12 +135,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE EGait GetGaitState() const { return LayerStates.Gait; }
 	
-	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
-	FORCEINLINE EOverlayState GetOverlayState() const { return LayerStates.OverlayState; }
-	
-	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
-	FORCEINLINE EAimState GetAimState() const { return LayerStates.AimState; }
-	
 	/**
 	 * @brief Gets the Control Rotation efficiently based on Network Role.
 	 * @return The smoothest available aim rotation.
@@ -217,11 +211,6 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> InteractAction;
-	
-	// A duplicate mesh used ONLY to cast shadows for the local player.
-	// It follows the Main Mesh animations perfectly using Master Pose.
-	/*UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<USkeletalMeshComponent> ShadowMesh;*/
 	
 	// =========================================================================
 	//                        INPUT FUNCTIONS

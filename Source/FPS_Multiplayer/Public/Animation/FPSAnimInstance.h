@@ -197,32 +197,29 @@ protected:
     //                   TURN IN PLACE & ROTATION
     // =========================================================================
     
-    /** Offset between the Root Bone and the Actor Rotation. */
+    // Internal Turn In Place Variables
+    
+    /** The actual value fed into the "Rotate Root Bone" node in AnimGraph */
     UPROPERTY(BlueprintReadOnly, Category = "Turn In Place")
     float RootYawOffset;
+
+    /** Current turn state */
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
+    ETurnInPlace TurnInPlace;
+
+    /** How fast the legs catch up to the body during a turn (Degrees per second) */
+    UPROPERTY(EditDefaultsOnly, Category = "Turn In Place")
+    float TurnInterpSpeed = 5.0f; // Slower = heavier feeling turn
+
+    // =========================================================================
+    //                        AIM OFFSETS (Spine)
+    // =========================================================================
     
     UPROPERTY(EditDefaultsOnly, Category = "AimOffset")
     float TurnAngle = 85.f;
     
     UPROPERTY(BlueprintReadOnly, Category = "AimOffset")
     float YawOffset;
-    
-    // Internal Turn In Place Variables
-    FRotator MovingRotation;
-    FRotator LastMovingRotation;
-    float DistanceCurve;
-    float LastDistanceCurve;
-    float DeltaDistanceCurve;
-    float AbsoluteRootYawOffset;
-    float YawExcess;
-    FRotator LookingRotation;
-    float YawRate;
-    float LastRootYawOffset;
-    bool bIsFirstTurnUpdate = true;
-
-    // =========================================================================
-    //                        AIM OFFSETS (Spine)
-    // =========================================================================
     
     /** Vertical Aim Offset (Pitch) used for generic AimOffsets. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "AimOffset")
@@ -340,6 +337,14 @@ private:
     float DisplacementSinceLastUpdate;
     bool bIsFirstUpdate = true;
     FDelegateHandle OnWeaponEquippedDelegateHandle;
+    
+    // Internal variables for Aim Offset
+    FRotator MovingRotation;
+    FRotator LastMovingRotation;
+    float YawExcess;
+    float YawRate;
+    float LastRootYawOffset;
+    float AbsoluteRootYawOffset;
 
     // =========================================================================
     //                        INTERNAL FUNCTIONS
