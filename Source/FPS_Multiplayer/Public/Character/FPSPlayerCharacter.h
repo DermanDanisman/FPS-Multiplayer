@@ -6,11 +6,12 @@
 #include "InputActionValue.h"
 #include "Data/Enums/FPSCharacterTypes.h"
 #include "Data/Structs/FPSCharacterDataContainer.h"
-#include "GameFramework/Character.h"
+#include "Implementation/TurnInPlaceCharacter.h"
 #include "Interface/FPSWeaponHandlerInterface.h"
 #include "Serialization/Archive.h" // Needed for serialization
 #include "FPSPlayerCharacter.generated.h"
 
+class UTurnInPlace;
 class UFPSCharacterMovementComponent;
 class UFPSInteractionComponent;
 class UFPSCombatComponent;
@@ -95,7 +96,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnOverlayStateChanged, EOverlayState);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnAimStateChanged, EAimState);
 
 UCLASS()
-class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ACharacter, public IFPSWeaponHandlerInterface
+class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ATurnInPlaceCharacter, public IFPSWeaponHandlerInterface
 {
 	GENERATED_BODY()
 
@@ -107,6 +108,7 @@ public:
 	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	virtual void FaceRotation(FRotator NewControlRotation, float DeltaTime = 0) override;
 	
 	// =========================================================================
 	//                        DELEGATES
@@ -292,7 +294,7 @@ protected:
 	 * This is the absolute cheapest way to send 2 rotation axes over a network.
 	 */
 	UPROPERTY(Replicated)
-	uint32 PackedControlRotation = 0;
+	uint32 ReplicatedControlRotation = 0;
 	
 	UPROPERTY(ReplicatedUsing = OnRep_ReplicatedAcceleration)
 	FReplicatedAcceleration ReplicatedAcceleration;
@@ -301,9 +303,6 @@ protected:
 	void OnRep_ReplicatedAcceleration();
 
 private:
-	
-	/*UPROPERTY(VisibleAnywhere, Category = "Camera")
-	TObjectPtr<USpringArmComponent> SpringArmComponent;*/
 	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Camera")
 	TObjectPtr<UCameraComponent> CameraComponent;
@@ -320,6 +319,9 @@ private:
 	// =========================================================================
 	//                       HELPER FUNCTIONS & VARIABLES
 	// =========================================================================
+	
+	UPROPERTY(EditAnywhere, Category = "Character States")
+	ECharacterMovementType MovementType = ECharacterMovementType::StrafeDirect;
 	
 	bool bWantsToSprint = false;
 	

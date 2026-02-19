@@ -5,6 +5,7 @@
 
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "TurnInPlace.h"
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Animation/FPSAnimInstance.h"
 #include "Camera/CameraComponent.h"
@@ -12,6 +13,7 @@
 #include "Component/FPSCombatComponent.h"
 #include "Component/FPSInteractionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/FPSPlayerController.h"
 #include "Player/FPSPlayerState.h"
@@ -40,11 +42,7 @@ AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitial
 	InteractionComponent = CreateDefaultSubobject<UFPSInteractionComponent>(TEXT("InteractionComponent"));
 
 	// 2. MOVEMENT SETTINGS
-	// For FPS, we typically want the character to rotate with the camera
-	bUseControllerRotationYaw = true;
-	// Disable standard camera smoothing because our SpringArm/Camera is attached to the Mesh Socket.
-	// We want the Animation to drive the camera movement 100%.
-	// Assign to the Class Member (FPSMovementComponent), do not create a local variable.
+	bUseControllerRotationYaw = true; 
     FPSMovementComponent = CastChecked<UFPSCharacterMovementComponent>(ThisClass::GetMovementComponent());
 	FPSMovementComponent->SetIsReplicated(true);
 	FPSMovementComponent->bCrouchMaintainsBaseLocation = true;
@@ -72,7 +70,7 @@ void AFPSPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 	// REPLICATION RULE: COND_SkipOwner
 	// We do NOT send this packet to the player who owns this character.
 	// Sending input back to the player who created it wastes bandwidth.
-	DOREPLIFETIME_CONDITION(ThisClass, PackedControlRotation, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, ReplicatedControlRotation, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(ThisClass, ReplicatedAcceleration, COND_SimulatedOnly);
 }
 
@@ -171,7 +169,7 @@ void AFPSPlayerCharacter::BeginPlay()
 			}
 		}
 	}
-	
+	UTurnInPlaceStatics::SetCharacterMovementType(this, MovementType);
 	UpdateGait();
 }
 
@@ -187,9 +185,15 @@ void AFPSPlayerCharacter::Tick(float DeltaTime)
 		if (GetController())
 		{
 			FRotator CurrentRot = GetController()->GetControlRotation();
-			PackedControlRotation = UCharacterMovementComponent::PackYawAndPitchTo32(CurrentRot.Yaw, CurrentRot.Pitch);
+			ReplicatedControlRotation = UCharacterMovementComponent::PackYawAndPitchTo32(CurrentRot.Yaw, CurrentRot.Pitch);
 		}
 	}
+	
+	/*if (IsLocallyControlled())
+	{
+		FVector CameraSocketLocation = GetMesh()->GetSocketLocation(FName("CameraSocket"));
+		CameraComponent->SetWorldLocation(CameraSocketLocation);
+	}*/
 }
 
 void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -241,6 +245,19 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		// Interaction (ex: F Key)
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::OnInteractedPressed);
 	}
+}
+
+void AFPSPlayerCharacter::FaceRotation(FRotator NewControlRotation, float DeltaTime)
+{
+	// 1. Give the Plugin a chance to handle rotation first.
+	// If the plugin says "I handled it" (returned true), we stop here.
+	if (TurnInPlace && TurnInPlace->FaceRotation(GetReplicatedControlRotation(), DeltaTime))
+	{
+		return;
+	}
+
+	// 2. If the plugin didn't handle it (e.g. we are moving), use standard UE rotation.
+	Super::FaceRotation(NewControlRotation, DeltaTime);
 }
 
 void AFPSPlayerCharacter::Move(const FInputActionValue& Value)
@@ -541,7 +558,6 @@ bool AFPSPlayerCharacter::CanSprint() const
 
 bool AFPSPlayerCharacter::CanCrouch() const
 {
-	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return false;
 	if (FPSMovementComponent->IsFalling()) return false;
 	return Super::CanCrouch();
 }
@@ -673,10 +689,10 @@ FRotator AFPSPlayerCharacter::GetReplicatedControlRotation() const
 	FRotator DecompressedRot;
     
 	// The Pitch is stored in the lower 16 bits
-	uint16 PitchShort = (PackedControlRotation & 0xFFFF);
+	uint16 PitchShort = (ReplicatedControlRotation & 0xFFFF);
     
 	// The Yaw is stored in the upper 16 bits (Shift right by 16)
-	uint16 YawShort = (PackedControlRotation >> 16);
+	uint16 YawShort = (ReplicatedControlRotation >> 16);
 
 	// Use Unreal's native decompression
 	DecompressedRot.Pitch = FRotator::DecompressAxisFromShort(PitchShort);

@@ -20,7 +20,8 @@ public class FPS_Multiplayer : ModuleRules
 			"UMG",
 			"Slate",
 			"SlateCore", 
-			"OnlineMultiplayerSessionsPlugin"
+			"OnlineMultiplayerSessionsPlugin",
+			"ActorTurnInPlace",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

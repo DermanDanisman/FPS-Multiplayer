@@ -2,6 +2,9 @@
 
 #include "FPS_Multiplayer/Public/Animation/FPSAnimInstance.h"
 
+#include "ToolWidgetsSlateTypes.h"
+#include "TurnInPlace.h"
+#include "TurnInPlaceStatics.h"
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Camera/CameraComponent.h"
 #include "Component/FPSCharacterMovementComponent.h"
@@ -73,9 +76,21 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
     
     // 2. Calculate Math
     CalculatePitchValuePerBone();
-    CalculateAimOffset();
-    CalculateTurnInPlace();
     CalculateLocomotionState();
+	CalculateAimOffsets();
+	
+	// Abort out of start anim state if we exceed min turn angle while strafing
+	bIsStrafing = !GetMovementComponent()->bOrientRotationToMovement;
+	
+	// Retrieve Turn in Place data from the game thread. This data is then processed in the function BlueprintThreadSafeUpdateAnimation.
+	UTurnInPlaceStatics::UpdateTurnInPlace(
+		GetFPSCharacter()->TurnInPlace, 
+		DeltaSeconds, 
+		TurnInPlaceAnimGraphData, 
+		bIsStrafing, 
+		TurnInPlaceAnimGraphOutput, 
+		bCanUpdateTurnInPlace
+	);
     
     // 3. Calculate IK / Transforms
     CalculateHandTransforms();     // Procedural ADS
@@ -88,6 +103,19 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// Note: We use 'AddCurveValue' because it's the public API. 
 	// It works perfectly for this purpose.
 	AddCurveValue(FName("LocomotionState"), LocomotionStateValue); 
+}
+
+void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
+{
+	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
+	
+	// We cache curve values in worker threads at the same point where the anim state is determined
+	// The game thread can then request these values. 
+	// If it queried the curve values at a different time resulting in a different state then the anim state will become unreliable
+	TurnInPlaceCurveValues = UTurnInPlaceStatics::ThreadSafeUpdateTurnInPlaceCurveValues(this, TurnInPlaceAnimGraphData);
+	
+	// Process Turn In Place Data that was retrieved from the game thread in BlueprintUpdateAnimation
+	UTurnInPlaceStatics::ThreadSafeUpdateTurnInPlace(TurnInPlaceAnimGraphData, bCanUpdateTurnInPlace, bIsStrafing, TurnInPlaceAnimGraphOutput);
 }
 
 #pragma endregion Lifecycle
@@ -122,13 +150,7 @@ void UFPSAnimInstance::CalculateEssentialData()
     // "ShouldMove" gate: Only true if we have input AND reasonable speed.
     // Threshold (3.0f) prevents tiny micro-movements (analog drift) from triggering start animations.
     bShouldMove = bIsAccelerating && (GroundSpeed > 3.0f);
-    
-    // -- History Data (For future Stop/Pivot logic) --
-    LastVelocityRotation = UKismetMathLibrary::MakeRotFromX(GetFPSCharacter()->GetVelocity());
-    bHasMovementInput = InputVector.SizeSquared() > 0.f;
-    LastMovementInputRotation = UKismetMathLibrary::MakeRotFromX(InputVector);
-    MovementInputVelocityDifference = UKismetMathLibrary::NormalizedDeltaRotator(LastMovementInputRotation, LastVelocityRotation).Yaw;
-    
+	
     // --- SYNC LAYER STATES ---
     // The AnimInstance simply copies the Authoritative State from the Character.
     LayerStates = GetFPSCharacter()->GetLayerStates();
@@ -217,8 +239,27 @@ void UFPSAnimInstance::CalculateLocomotionState()
 //                        CALCULATIONS: MATH & PHYSICS
 // =========================================================================
 
+void UFPSAnimInstance::CalculateAimOffsets()
+{
+	// =========================================================
+	// UPDATE AIM OFFSETS FOR TURN IN PLACE
+	// =========================================================
+
+	// 2. GET PITCH (Up/Down)
+	// We calculate this standard way (Control Rot - Actor Rot)
+	FRotator ControlRot = GetFPSCharacter()->GetReplicatedControlRotation();
+	FRotator ActorRot = GetFPSCharacter()->GetActorRotation();
+	FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(ControlRot, ActorRot);
+	AimPitch = Delta.Pitch;
+	RootYawOffset = Delta.Yaw;
+}
+
 void UFPSAnimInstance::CalculatePitchValuePerBone()
 {
+	if (!GetFPSCharacter()) return;
+	if (!GetFPSCharacter()->GetCombatComponent()) return;
+	if (!GetFPSCharacter()->GetCombatComponent()->GetEquippedWeapon()) return;
+	
     // 1. Get the Rotations
     FRotator ControlRotation = GetFPSCharacter()->GetReplicatedControlRotation();
     FRotator ActorRotation = GetFPSCharacter()->GetActorRotation();
@@ -241,91 +282,6 @@ void UFPSAnimInstance::CalculatePitchValuePerBone()
        GetDeltaSeconds(),      
        PitchPerBoneInterpSpeed
     );
-}
-
-void UFPSAnimInstance::CalculateAimOffset()
-{
-	// 1. Get fundamental rotations
-	FRotator ControlRotation = GetFPSCharacter()->GetReplicatedControlRotation();
-	FRotator ActorRotation = GetFPSCharacter()->GetActorRotation();
-    
-	// 2. Calculate Pitch (Standard Look Up/Down)
-	FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(ControlRotation, ActorRotation);
-	PitchOffset = DeltaRot.Pitch;
-
-	// 3. Handle Root Yaw (The Feet)
-	// If we are moving, the feet must align with the body immediately.
-	if (GroundSpeed > 5.0f || bIsFalling) 
-	{
-		RootYawOffset = 0.f;
-		TurnInPlace = ETurnInPlace::ETIP_None;
-        
-		// Reset rotation history so we don't snap when we stop
-		LastMovingRotation = ActorRotation; 
-		MovingRotation = ActorRotation;
-	}
-	else // WE ARE STANDING STILL
-	{
-		LastMovingRotation = MovingRotation;
-		MovingRotation = ActorRotation;
-
-		// Calculate how much the Capsule (Actor) rotated this frame
-		FRotator DeltaActorRot = UKismetMathLibrary::NormalizedDeltaRotator(MovingRotation, LastMovingRotation);
-        
-		// COUNTER-ROTATE: 
-		// If the capsule turned 5 degrees Right, subtract 5 from RootYawOffset 
-		// to keep the mesh looking like it stayed in the same world rotation.
-		const float YawDelta = DeltaActorRot.Yaw;
-        
-		// We accumulate the offset. 
-		// NOTE: We wrap this between -180 and 180 to prevent math errors on full spins.
-		RootYawOffset = UKismetMathLibrary::NormalizeAxis(RootYawOffset - YawDelta);
-
-		// 4. Check if we need to turn
-		CalculateTurnInPlace();
-	}
-    
-	// 5. Set YawOffset for Blendspaces (optional, depending on your setup)
-	YawOffset = RootYawOffset * -1.f;
-}
-
-void UFPSAnimInstance::CalculateTurnInPlace()
-{
-	// Threshold to trigger the turn animation (e.g., 90 degrees)
-	// You can make this smaller (e.g., 45 or 60) for more responsive feet.
-	const float TurnThreshold = TurnAngle; 
-
-	// CASE 1: We are not currently turning, checking if we should start.
-	if (TurnInPlace == ETurnInPlace::ETIP_None)
-	{
-		if (FMath::Abs(RootYawOffset) > TurnThreshold)
-		{
-			if (RootYawOffset > 0.f)
-			{
-				TurnInPlace = ETurnInPlace::ETIP_Right;
-			}
-			else
-			{
-				TurnInPlace = ETurnInPlace::ETIP_Left;
-			}
-		}
-	}
-    
-	// CASE 2: We ARE turning.
-	// Logic: We interpolate the Offset back to 0. 
-	// As RootYawOffset approaches 0, the "Rotate Root Bone" node in AnimGraph 
-	// applies less rotation, making the feet align with the capsule.
-	if (TurnInPlace != ETurnInPlace::ETIP_None)
-	{
-		// Interp to 0
-		RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.f, GetDeltaSeconds(), TurnInterpSpeed);
-
-		// If we are close enough to 0, we are done turning.
-		if (FMath::Abs(RootYawOffset) < 10.f) // 10 degrees tolerance
-		{
-			TurnInPlace = ETurnInPlace::ETIP_None;
-		}
-	}
 }
 
 void UFPSAnimInstance::CalculateLeftHandTransform()
