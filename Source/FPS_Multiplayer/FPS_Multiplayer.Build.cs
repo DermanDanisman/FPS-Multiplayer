@@ -26,7 +26,8 @@ public class FPS_Multiplayer : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-
+			"AnimationLocomotionLibraryRuntime",
+			"AnimGraphRuntime"
 		});
 
 		// Uncomment if you are using Slate UI

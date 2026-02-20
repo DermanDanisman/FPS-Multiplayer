@@ -2,7 +2,7 @@
 
 #include "FPS_Multiplayer/Public/Animation/FPSAnimInstance.h"
 
-#include "ToolWidgetsSlateTypes.h"
+#include "AnimCharacterMovementLibrary.h"
 #include "TurnInPlace.h"
 #include "TurnInPlaceStatics.h"
 #include "Actor/Weapon/FPSWeapon.h"
@@ -23,6 +23,12 @@ void UFPSAnimInstance::NativeInitializeAnimation()
 {
     Super::NativeInitializeAnimation();
     UpdateReferences();
+	
+	// Set the initial world location before the first frame runs
+	if (AActor* OwningActor = GetOwningActor())
+	{
+		WorldLocation = OwningActor->GetActorLocation();
+	}
 }
 
 void UFPSAnimInstance::UpdateReferences()
@@ -69,15 +75,15 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
     Super::NativeUpdateAnimation(DeltaSeconds);
     
     if (!GetFPSCharacter() || !GetMovementComponent()) return;
-
-    // 1. Gather Data
-    CalculateEssentialData();
-    CalculateLocationData(DeltaSeconds);
-    
-    // 2. Calculate Math
-    CalculatePitchValuePerBone();
-    CalculateLocomotionState();
-	CalculateAimOffsets();
+    	
+	UpdateLocationData(DeltaSeconds);
+	UpdateRotationData();
+	UpdateVelocityData(DeltaSeconds);
+	UpdateAccelerationData();
+	UpdateCharacterState();
+	UpdateAimingData();
+	UpdateJumpFallData();
+	UpdateWallDetectionHeuristic();
 	
 	// Abort out of start anim state if we exceed min turn angle while strafing
 	bIsStrafing = !GetMovementComponent()->bOrientRotationToMovement;
@@ -92,22 +98,9 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		bCanUpdateTurnInPlace
 	);
     
-    // 3. Calculate IK / Transforms
+    // Calculate IK / Transforms
     CalculateHandTransforms();     // Procedural ADS
     CalculateLeftHandTransform();  // Left Hand IK
-	
-	// --- THE INJECTION ---
-	// This makes the AnimGraph "think" an animation is playing this curve.
-	// Now "GetCurveValue(LocomotionState)" will return your value!
-    
-	// Note: We use 'AddCurveValue' because it's the public API. 
-	// It works perfectly for this purpose.
-	AddCurveValue(FName("LocomotionState"), LocomotionStateValue); 
-}
-
-void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
-{
-	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
 	
 	// We cache curve values in worker threads at the same point where the anim state is determined
 	// The game thread can then request these values. 
@@ -126,120 +119,25 @@ void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 //                           CALCULATIONS: DATA
 // =========================================================================
 
-void UFPSAnimInstance::CalculateEssentialData()
+void UFPSAnimInstance::UpdateLocationData(float DeltaTime)
 {
-    // -- Velocity & Speed --
-    // CRITICAL FOR REPLICATION:
-    // Acceleration is replicated via the GetMovementComponent(). Input is not.
-    Acceleration = GetMovementComponent()->GetCurrentAcceleration();
-    Velocity = GetFPSCharacter()->GetVelocity();
-    Velocity2D = FVector(Velocity.X, Velocity.Y, 0.f);
+	AActor* OwningActor = GetOwningActor();
+	if (!OwningActor) return; // Safety check
+
+	FVector CurrentLocation = OwningActor->GetActorLocation();
     
-    Speed3D = Velocity.Size();
-    GroundSpeed = Velocity2D.Size(); // Ignore Z for locomotion
+	// Because WorldLocation was initialized properly, this is naturally 0.f on frame 1
+	DisplacementSinceLastUpdate = UKismetMathLibrary::VSizeXY(CurrentLocation - WorldLocation);
+	WorldLocation = CurrentLocation;
     
-    // NOTE: GetLastInputVector() is only valid Locally! Remote clients see (0,0,0).
-    InputVector = GetMovementComponent()->GetLastInputVector(); 
-    
-    // -- State Booleans --
-    bIsAccelerating = (Acceleration.SizeSquared2D() > 0.1f);
-    bIsFalling = GetMovementComponent()->IsFalling();
-    bIsCrouching = GetFPSCharacter()->IsCrouched();
-    bCanJump = GetFPSCharacter()->CanJump();
-    
-    // "ShouldMove" gate: Only true if we have input AND reasonable speed.
-    // Threshold (3.0f) prevents tiny micro-movements (analog drift) from triggering start animations.
-    bShouldMove = bIsAccelerating && (GroundSpeed > 3.0f);
+	DisplacementSpeed = UKismetMathLibrary::SafeDivide(DisplacementSinceLastUpdate, DeltaTime);
 	
-    // --- SYNC LAYER STATES ---
-    // The AnimInstance simply copies the Authoritative State from the Character.
-    LayerStates = GetFPSCharacter()->GetLayerStates();
-    bIsLocallyControlled = GetFPSCharacter()->IsLocallyControlled();
-    
-    // Cache Booleans for cleaner AnimGraph Transitions
-    bIsSprinting = (LayerStates.Gait == EGait::EG_Sprinting);
-    bIsAiming    = (LayerStates.AimState == EAimState::EAS_ADS || LayerStates.AimState == EAimState::EAS_Zoomed);
+	Speed3D = WorldVelocity.Size();
+	GroundSpeed = WorldVelocity2D.Size(); // Ignore Z for locomotion
+	
 }
 
-void UFPSAnimInstance::CalculateLocomotionStartDirection(const float StartAngle)
-{
-	if (UKismetMathLibrary::InRange_FloatFloat(StartAngle, -60.f, 60.f))
-		LocomotionStartDirection = ELocomotionStartDirection::LSD_Forward;
-	else if (UKismetMathLibrary::InRange_FloatFloat(StartAngle, 60.f, 120.f))
-		LocomotionStartDirection = ELocomotionStartDirection::LSD_Right;
-	else if (UKismetMathLibrary::InRange_FloatFloat(StartAngle, -120.f, -60.f))
-		LocomotionStartDirection = ELocomotionStartDirection::LSD_Left;
-	else if (UKismetMathLibrary::InRange_FloatFloat(StartAngle, 121.f, 180.f))
-		LocomotionStartDirection = ELocomotionStartDirection::LSD_BackwardRight;
-	else
-		LocomotionStartDirection = ELocomotionStartDirection::LSD_BackwardLeft;
-}
-
-void UFPSAnimInstance::CalculateLocationData(float DeltaTime)
-{
-    DisplacementSinceLastUpdate = UKismetMathLibrary::VSizeXY(GetOwningActor()->GetActorLocation() - WorldLocation);
-    WorldLocation = GetOwningActor()->GetActorLocation();
-    DisplacementSpeed = UKismetMathLibrary::SafeDivide(DisplacementSinceLastUpdate, DeltaTime);
-    
-    if (bIsFirstUpdate)
-    {
-       DisplacementSinceLastUpdate = 0.f;
-       DisplacementSpeed = 0.f;
-       bIsFirstUpdate = false;
-    }
-}
-
-void UFPSAnimInstance::CalculateLocomotionState()
-{
-	if (!GetFPSCharacter()) return;
-	
-	// Dot Product determines if we are reversing direction (Pivoting)
-    FVector NormalizedVelocity = Velocity.GetSafeNormal();
-    FVector NormalizedAcceleration = Acceleration.GetSafeNormal();
-    float DotProduct = FVector::DotProduct(NormalizedVelocity, NormalizedAcceleration);
-    
-	float TargetStateValue = 0.0f;
-	
-    // State Machine Logic
-	if (DotProduct < 0.0f)
-	{
-		LocomotionState = ELocomotionState::ELS_Idle; // ELocomotionState::ELS_Pivoting
-	}
-	else if (LayerStates.Gait == EGait::EG_Running 
-		&& GroundSpeed > 1.0f && Acceleration.Size() > 400.0f 
-		&& GetMovementComponent()->MaxWalkSpeed > GetMovementComponent()->GetWalkSpeed()) // This means we are in Running State
-	{
-		TargetStateValue = 2.0f;
-		LocomotionState = ELocomotionState::ELS_Run;
-	}
-	else if (LayerStates.Gait == EGait::EG_Walking && GroundSpeed > 1.0f && Acceleration.Size() > 0.01f && GetMovementComponent()->MaxWalkSpeed > 1.0f)
-	{
-		TargetStateValue = 1.0f;
-		LocomotionState = ELocomotionState::ELS_Walk;
-	}
-	else
-	{
-		TargetStateValue = 0.0f;
-		LocomotionState = ELocomotionState::ELS_Idle;
-
-	}
-	
-	// Interpolate simply to smooth out network jitter
-	// If you want it instant (snappy), just set it. 
-	// If you want it smooth like the video, Interp it.
-	// 10.0f is a good speed: fast enough to feel responsive, smooth enough to blend.
-	LocomotionStateValue = FMath::FInterpConstantTo(LocomotionStateValue, TargetStateValue, GetDeltaSeconds(), LocomotionCurveInterpSpeed);
-} 
-
-#pragma endregion Data Gathering
-
-#pragma region Math & Physics
-
-// =========================================================================
-//                        CALCULATIONS: MATH & PHYSICS
-// =========================================================================
-
-void UFPSAnimInstance::CalculateAimOffsets()
+void UFPSAnimInstance::UpdateRotationData()
 {
 	// =========================================================
 	// UPDATE AIM OFFSETS FOR TURN IN PLACE
@@ -254,35 +152,153 @@ void UFPSAnimInstance::CalculateAimOffsets()
 	RootYawOffset = Delta.Yaw;
 }
 
-void UFPSAnimInstance::CalculatePitchValuePerBone()
+void UFPSAnimInstance::UpdateVelocityData(float DeltaTime)
+{
+	AActor* OwningActor = GetOwningActor();
+	if (!OwningActor) return; 
+    
+	bool bWasMovingLastUpdate = !LocalVelocity2D.IsNearlyZero(0.000001f);
+    
+	WorldVelocity = OwningActor->GetVelocity();
+	WorldVelocity2D = FVector(WorldVelocity.X, WorldVelocity.Y, 0.f);
+    
+	// Pure C++ way to get Local Velocity (Replaces the Kismet 'LessLess' node)
+	LocalVelocity2D = OwningActor->GetActorRotation().UnrotateVector(WorldVelocity2D);
+    
+	bHasVelocity = !LocalVelocity2D.IsNearlyZero(0.000001f);
+    
+	// --- FIX 2: Bulletproof Angle Math ---
+	// Only calculate a new angle if speed > 5 cm/s (SizeSquared > 25.0f). 
+	// This prevents erratic angle snapping when velocity crosses through 0.0 during quick WASD changes.
+	if (WorldVelocity2D.SizeSquared() > 25.0f) 
+	{
+		float VelocityYaw = WorldVelocity2D.ToOrientationRotator().Yaw;
+		LocalVelocityDirectionAngle = FRotator::NormalizeAxis(VelocityYaw - OwningActor->GetActorRotation().Yaw);
+	}
+    
+	// Always calculate the Offset angle so Orientation Warping perfectly counters the Turn-In-Place twisting
+	LocalVelocityDirectionAngleWithOffset = FRotator::NormalizeAxis(LocalVelocityDirectionAngle - RootYawOffset);
+    
+	// --- SMOOTHING FOR ORIENTATION WARPING ---
+	FRotator CurrentRot(0.f, SmoothedLocomotionAngle, 0.f);
+	FRotator TargetRot(0.f, LocalVelocityDirectionAngleWithOffset, 0.f);
+    
+	CurrentRot = FMath::RInterpTo(CurrentRot, TargetRot, DeltaTime, LocomotionAngleInterpSpeed);
+	SmoothedLocomotionAngle = CurrentRot.Yaw;
+    
+	// Update Cardinal Directions
+	LocalVelocityDirection = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngleWithOffset, CardinalDirectionDeadZone, LocalVelocityDirection, bWasMovingLastUpdate);
+	LocalVelocityDirectionNoOffset = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngle, CardinalDirectionDeadZone, LocalVelocityDirectionNoOffset, bWasMovingLastUpdate);
+}
+
+void UFPSAnimInstance::UpdateAccelerationData()
+{
+	// Acceleration is replicated via the GetMovementComponent(). Input is not.
+	WorldAcceleration = GetMovementComponent()->GetCurrentAcceleration();
+	WorldAcceleration2D = FVector(WorldAcceleration.X, WorldAcceleration.Y, 0.f);
+	LocalAcceleration2D = UKismetMathLibrary::LessLess_VectorRotator(WorldAcceleration2D, GetOwningActor()->GetActorRotation());
+	bHasAcceleration = !UKismetMathLibrary::NearlyEqual_FloatFloat(LocalAcceleration2D.SizeSquared(), 0.f, 0.000001f);
+}
+
+void UFPSAnimInstance::UpdateCharacterState()
+{
+	// On Ground State
+	bIsOnGround = GetMovementComponent()->IsMovingOnGround();
+	
+	// Crouch State
+	bool WasCrouchingLastUpdate = bIsCrouching;
+	bIsCrouching = GetMovementComponent()->IsCrouching();
+	bCrouchStateChanged = bIsCrouching != WasCrouchingLastUpdate;
+	
+	// Sprinting State
+	bIsSprinting = (LayerStates.Gait == EGait::EG_Sprinting);
+	
+	// ADS State
+	bIsAiming = (LayerStates.AimState == EAimState::EAS_ADS || LayerStates.AimState == EAimState::EAS_Zoomed);
+	
+	// In Air State
+	bIsJumping = false;
+	bIsFalling = false;
+	if (GetMovementComponent()->MovementMode == EMovementMode::MOVE_Falling)
+	{
+		if (WorldVelocity.Z > 0.f)
+			bIsJumping = true;
+		else
+			bIsFalling = true;
+	}
+	
+	// "ShouldMove" gate: Only true if we have input AND reasonable speed.
+	// Threshold (3.0f) prevents tiny micro-movements (analog drift) from triggering start animations.
+	bShouldMove = bHasAcceleration && (GroundSpeed > 3.0f);
+	
+	// --- SYNC LAYER STATES ---
+	// The AnimInstance simply copies the Authoritative State from the Character.
+	LayerStates = GetFPSCharacter()->GetLayerStates();
+	bIsLocallyControlled = GetFPSCharacter()->IsLocallyControlled();
+}
+
+void UFPSAnimInstance::UpdateAimingData()
 {
 	if (!GetFPSCharacter()) return;
 	if (!GetFPSCharacter()->GetCombatComponent()) return;
 	if (!GetFPSCharacter()->GetCombatComponent()->GetEquippedWeapon()) return;
 	
-    // 1. Get the Rotations
-    FRotator ControlRotation = GetFPSCharacter()->GetReplicatedControlRotation();
-    FRotator ActorRotation = GetFPSCharacter()->GetActorRotation();
+	// 1. Get the Rotations
+	FRotator ControlRotation = GetFPSCharacter()->GetReplicatedControlRotation();
+	FRotator ActorRotation = GetFPSCharacter()->GetActorRotation();
     
-    // 2. Find the Local Aim Offset
-    // This gives us a clean -90 to 90 Pitch value, completely ignoring world compass direction!
-    FRotator AimOffset = UKismetMathLibrary::NormalizedDeltaRotator(ControlRotation, ActorRotation);
+	// 2. Find the Local Aim Offset
+	// This gives us a clean -90 to 90 Pitch value, completely ignoring world compass direction!
+	FRotator AimOffset = UKismetMathLibrary::NormalizedDeltaRotator(ControlRotation, ActorRotation);
     
-    // 3. Divide by 8 bones and invert. 
-    // Example: Looking up 80 deg -> Each bone rotates -10 deg.
-    float PitchPerBone = (AimOffset.Pitch / 8.0f) * -1.0f; 
+	// 3. Divide by 8 bones and invert. 
+	// Example: Looking up 80 deg -> Each bone rotates -10 deg.
+	float PitchPerBone = (AimOffset.Pitch / 8.0f) * -1.0f; 
     
-    // 4. Apply to the correct axis (Assuming Roll for Spine Bones in this skeleton)
-    FRotator TargetPitchPerBone = FRotator(0.f, 0.f, PitchPerBone);
+	// 4. Apply to the correct axis (Assuming Roll for Spine Bones in this skeleton)
+	FRotator TargetPitchPerBone = FRotator(0.f, 0.f, PitchPerBone);
     
-    // 5. INTERPOLATE (Smoothing)
-    PitchValuePerBone = FMath::RInterpTo(
-       PitchValuePerBone,      
-       TargetPitchPerBone,     
-       GetDeltaSeconds(),      
-       PitchPerBoneInterpSpeed
-    );
+	// 5. INTERPOLATE (Smoothing)
+	PitchValuePerBone = FMath::RInterpTo(
+	   PitchValuePerBone,      
+	   TargetPitchPerBone,     
+	   GetDeltaSeconds(),      
+	   PitchPerBoneInterpSpeed
+	);
 }
+
+void UFPSAnimInstance::UpdateJumpFallData()
+{
+	if (bIsJumping)
+	{
+		TimeToJumpApex = (0.0f - WorldVelocity.Z) / TryGetPawnOwner()->GetMovementComponent()->GetGravityZ();
+	}
+	else
+	{
+		TimeToJumpApex = 0.0f;
+	}
+}
+
+// This logic guesses if the character is running into a wall by checking if there's a large angle between velocity and acceleration 
+// (i.e. the character is pushing towards the wall but actually sliding to the side) and if the character is trying to accelerate but speed is relatively low.
+void UFPSAnimInstance::UpdateWallDetectionHeuristic()
+{
+	bool bLocalAccl = UKismetMathLibrary::VSizeXY(LocalAcceleration2D) > 0.1f;
+	bool bLocalVel = UKismetMathLibrary::VSizeXY(LocalVelocity2D) < 200.0f;
+	FVector LocalAcclNormalized = UKismetMathLibrary::Normal(LocalAcceleration2D);
+	FVector LocalVelNormalized = UKismetMathLibrary::Normal(LocalVelocity2D);
+	float DotProduct = FVector::DotProduct(LocalAcclNormalized, LocalVelNormalized);
+	bIsRunningIntoWall = bLocalAccl && bLocalVel && UKismetMathLibrary::InRange_FloatFloat(DotProduct, -0.6f, 0.6f);
+	
+}
+
+#pragma endregion Data Gathering
+
+#pragma region Math & Physics
+
+// =========================================================================
+//                        CALCULATIONS: MATH & PHYSICS
+// =========================================================================
 
 void UFPSAnimInstance::CalculateLeftHandTransform()
 {
@@ -477,35 +493,45 @@ void UFPSAnimInstance::CalculateHandTransforms()
 //                           EVENTS & UTILITIES
 // =========================================================================
 
-void UFPSAnimInstance::UpdateOnLocomotionEnter()
+ELocomotionCardinalDirection UFPSAnimInstance::SelectCardinalDirectionFromAngle(float NewAngle, float NewDeadZone,
+	ELocomotionCardinalDirection CurrentDirection, bool bUseCurrentDirection) const
 {
-    if (!GetFPSCharacter()) return;
-
-    StartRotation = GetFPSCharacter()->GetActorRotation();
-    FVector DirectionVector;
-
-    // A. Locally Controlled: Input is the "Intent" (Most responsive)
-    if (GetFPSCharacter()->IsLocallyControlled())
-    {
-       DirectionVector = InputVector; 
-       if (DirectionVector.IsNearlyZero()) DirectionVector = Velocity;
-    }
-    // B. Remote: Velocity is the "Reality" (Most accurate for network)
-    else
-    {
-       DirectionVector = Acceleration;
-       if (DirectionVector.IsNearlyZero()) DirectionVector = Velocity;
-    }
-
-    if (DirectionVector.IsNearlyZero()) return;
-
-    PrimaryRotation = DirectionVector.ToOrientationRotator();
-    SecondaryRotation = PrimaryRotation;
-    
-    FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(PrimaryRotation, StartRotation);
-    LocomotionStartAngle = DeltaRotation.Yaw;
-
-    CalculateLocomotionStartDirection(LocomotionStartAngle);
+	float AbsoluteNewAngle = UKismetMathLibrary::Abs(NewAngle);
+	float ForwardDeadZone = NewDeadZone;
+	float BackwardDeadZone = NewDeadZone;
+	
+	if (bUseCurrentDirection)
+	{
+		// If moving Fwd, double the Fwd dead zone.
+		// It should be harder to leave Fwd when moving Fwd.
+		// When moving Left/Right, the dead zone will be smaller so we don't rapidly toggle between directions.
+		switch (CurrentDirection) 
+		{
+		case ELocomotionCardinalDirection::LSD_Forward:
+			ForwardDeadZone *= 2.0f; // Cleaner syntax
+			break;
+		case ELocomotionCardinalDirection::LSD_Backward:
+			BackwardDeadZone *= 2.0f; 
+			break;
+		default: 
+			break;
+		}
+	}
+	
+	if (AbsoluteNewAngle <= (45.f + ForwardDeadZone))
+	{
+		return ELocomotionCardinalDirection::LSD_Forward;
+	}
+	if (AbsoluteNewAngle >= (135.f - BackwardDeadZone))
+	{
+		return ELocomotionCardinalDirection::LSD_Backward;
+	}
+	if (NewAngle > 0.0f)
+	{
+		return ELocomotionCardinalDirection::LSD_Right;
+	}
+	
+	return ELocomotionCardinalDirection::LSD_Left;
 }
 
 void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
@@ -608,3 +634,27 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
 }
 
 #pragma endregion Events & Start
+
+float UFPSAnimInstance::GetPredictedStopDistance() const
+{
+	FVector PredictedVelocity = GetMovementComponent()->GetLastUpdateVelocity();
+	bool bPredictedUseSeparateBrakingFriction = GetMovementComponent()->bUseSeparateBrakingFriction;
+	float PredictedBrakingFriction = GetMovementComponent()->BrakingFriction;
+	float PredictedGroundFriction = GetMovementComponent()->GroundFriction;
+	float PredictedBrakingFrictionFactor = GetMovementComponent()->BrakingFrictionFactor;
+	float PredictedBrakingDecelerationWalking = GetMovementComponent()->BrakingDecelerationWalking;
+	
+	return UAnimCharacterMovementLibrary::PredictGroundMovementStopLocation(
+			PredictedVelocity,
+			bPredictedUseSeparateBrakingFriction,
+			PredictedBrakingFriction,
+			PredictedGroundFriction,
+			PredictedBrakingFrictionFactor,
+			PredictedBrakingDecelerationWalking
+		).Size();
+}
+
+bool UFPSAnimInstance::ShouldDistanceMatchStop() const
+{
+	return bHasVelocity && !bHasAcceleration;
+}

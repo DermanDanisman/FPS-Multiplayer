@@ -105,11 +105,11 @@ void UFPSCharacterMovementComponent::UpdateMovementSettings(const FWeaponMovemen
 	AFPSPlayerCharacter* FPSCharacter = Cast<AFPSPlayerCharacter>(GetCharacterOwner());
 	if (!FPSCharacter) return;
 	
-	// 1. Cache the values so we can swap back and forth
+	/*// 1. Cache the values so we can swap back and forth
 	RunSpeed = NewData.MaxBaseSpeed;
 	WalkSpeed = NewData.AnimWalkRefSpeed;
 	SprintSpeed = NewData.AnimSprintRefSpeed; // Assumes this exists in your struct
-	MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;
+	MaxWalkSpeedCrouched = NewData.MaxCrouchSpeed;*/
 	
 	// 2. Apply the correct speed based on current state
 	if (FPSCharacter->GetGaitState() == EGait::EG_Walking)

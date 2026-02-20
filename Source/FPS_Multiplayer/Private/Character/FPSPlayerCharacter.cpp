@@ -148,6 +148,7 @@ void AFPSPlayerCharacter::OnRep_PlayerState()
 			}
 		}
 	}
+	UpdateGait();
 }
 
 void AFPSPlayerCharacter::BeginPlay()
@@ -443,18 +444,10 @@ void AFPSPlayerCharacter::SetGaitState(EGait NewState)
 	OnGaitStateChanged.Broadcast(NewState);
 	
 	FWeaponMovementData MovementData;
-	MovementData.AnimRunRefSpeed = FPSMovementComponent->GetRunSpeed();
+	/*MovementData.AnimRunRefSpeed = FPSMovementComponent->GetRunSpeed();
 	MovementData.AnimWalkRefSpeed = FPSMovementComponent->GetWalkSpeed();
-	MovementData.AnimSprintRefSpeed = FPSMovementComponent->GetSprintSpeed();
+	MovementData.AnimSprintRefSpeed = FPSMovementComponent->GetSprintSpeed();*/
 	FPSMovementComponent->UpdateMovementSettings(MovementData);
-
-	// 2. Physical Movement Speed (Apply immediately for responsiveness)
-	if (NewState == EGait::EG_Sprinting)
-		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetSprintSpeed();
-	else if (NewState == EGait::EG_Walking)
-		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetWalkSpeed();
-	else
-		FPSMovementComponent->MaxWalkSpeed = FPSMovementComponent->GetRunSpeed();
 
 	// 3. Replication (Server)
 	if (!HasAuthority())
@@ -471,9 +464,9 @@ void AFPSPlayerCharacter::Server_SetGaitState_Implementation(EGait NewState)
 	LayerStates.Gait = NewState;
 	
 	FWeaponMovementData MovementData;
-	MovementData.AnimRunRefSpeed = FPSMovementComponent->GetRunSpeed();
+	/*MovementData.AnimRunRefSpeed = FPSMovementComponent->GetRunSpeed();
 	MovementData.AnimWalkRefSpeed = FPSMovementComponent->GetWalkSpeed();
-	MovementData.AnimSprintRefSpeed = FPSMovementComponent->GetSprintSpeed();
+	MovementData.AnimSprintRefSpeed = FPSMovementComponent->GetSprintSpeed();*/
 	FPSMovementComponent->UpdateMovementSettings(MovementData);
     
 	// 2. Update Physics Speed (CRITICAL for preventing Rubber Banding)

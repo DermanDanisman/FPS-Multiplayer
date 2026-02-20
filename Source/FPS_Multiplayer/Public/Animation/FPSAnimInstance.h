@@ -21,13 +21,13 @@ class AFPSWeapon;
 
 /** Determines which start animation to play when moving from Idle. */
 UENUM(BlueprintType)
-enum class ELocomotionStartDirection : uint8
+enum class ELocomotionCardinalDirection : uint8
 {
-    LSD_Forward          UMETA(DisplayName = "Forward"),
-    LSD_Right            UMETA(DisplayName = "Right"),
-    LSD_Left             UMETA(DisplayName = "Left"),
-    LSD_BackwardRight    UMETA(DisplayName = "Backward Right"),
-    LSD_BackwardLeft     UMETA(DisplayName = "Backward Left"),
+    LSD_Forward    UMETA(DisplayName = "Forward"),
+    LSD_Right      UMETA(DisplayName = "Right"),
+    LSD_Left       UMETA(DisplayName = "Left"),
+    LSD_Backward   UMETA(DisplayName = "Backward"),
+    LSD_MAX        UMETA(Hidden)
 };
 
 UENUM(BlueprintType)
@@ -66,23 +66,8 @@ public:
     // Called every frame on the Game Thread.
     // Safe to access UObjects (Character, MovementComponent, Weapons).
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
-    virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
     
-    // --- Getters ---
-    
-    UFUNCTION(BlueprintPure, Category = "References", meta=(BlueprintThreadSafe))
-    FORCEINLINE UFPSCharacterMovementComponent* GetMovementComponent() const
-    {
-       return TryGetPawnOwner()->GetMovementComponent() ? Cast<UFPSCharacterMovementComponent>(TryGetPawnOwner()->GetMovementComponent()) : nullptr;
-    }
-    
-    UFUNCTION(BlueprintPure, Category = "References", meta=(BlueprintThreadSafe))
-    FORCEINLINE AFPSPlayerCharacter* GetFPSCharacter() const
-    {
-       return TryGetPawnOwner() ? Cast<AFPSPlayerCharacter>(TryGetPawnOwner()) : nullptr;
-    }
-    
-    // --- TURN IN PLACE ---
+    // --- TURN IN PLACE INTERFACE ---
     virtual FTurnInPlaceAnimSet GetTurnInPlaceAnimSet_Implementation() const override
     {
         if (bIsCrouching)
@@ -97,30 +82,6 @@ public:
         return TurnInPlaceCurveValues;
     };
     
-    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE FTurnInPlaceAnimSet GetTurnAnimSet() { return TurnInPlaceAnimGraphData.AnimSet; }
-    
-    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE UAnimSequence* GetTurnAnimation(const bool bRecover) { return UTurnInPlaceStatics::GetTurnInPlaceAnimation(GetTurnAnimSet(), TurnInPlaceGraphNodeData, bRecover); }
-
-    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE float GetAnimStateTimeNodeData() const { return TurnInPlaceGraphNodeData.AnimStateTime; }
-    
-    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE void SetTurnPlayRateNodeData(float NewTurnPlayRate) { TurnInPlaceGraphNodeData.TurnPlayRate = NewTurnPlayRate; }
-    
-    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE void SetHasReachedMaxTurnAngleNodeData(bool NewHasReachedMaxTurnAngle) { TurnInPlaceGraphNodeData.bHasReachedMaxTurnAngle = NewHasReachedMaxTurnAngle; }
-    
-    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE void SetStepSizeNodeData(int32 NewStepSize) { TurnInPlaceGraphNodeData.StepSize = NewStepSize; }
-    
-    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE void SetIsTurningRightNodeData(bool NewIsTurningRight) { TurnInPlaceGraphNodeData.bIsTurningRight = NewIsTurningRight; }
-    
-    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE void SetAnimStateTimeNodeData(float NewAnimStateTime) { TurnInPlaceGraphNodeData.AnimStateTime = NewAnimStateTime; }
-    
 protected:
     
     // =========================================================================
@@ -128,94 +89,102 @@ protected:
     // =========================================================================
     
     /** Current velocity vector in World Space. */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    FVector Velocity;
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    FVector WorldVelocity;
     
     /** Current velocity ignoring Z axis (useful for ground speed). */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    FVector Velocity2D;
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    FVector WorldVelocity2D;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    FVector LocalVelocity2D;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    float LocalVelocityDirectionAngle;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    float LocalVelocityDirectionAngleWithOffset;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    ELocomotionCardinalDirection LocalVelocityDirection;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    ELocomotionCardinalDirection LocalVelocityDirectionNoOffset;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    bool bHasVelocity;
+    
+    /** The smoothed angle fed directly into the Orientation Warping node */
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
+    float SmoothedLocomotionAngle;
     
     /** Current acceleration (Input intent) from the Movement Component. */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    FVector Acceleration;
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
+    FVector WorldAcceleration;
     
-    /** * Raw Input Vector. 
-     * NOTE: This is only valid for the Local Player. Replicates as Zero for others. 
-     */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    FVector InputVector;
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
+    FVector WorldAcceleration2D;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
+    FVector LocalAcceleration2D;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
+    bool bHasAcceleration;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsOnGround;
+    /** Gate: True if player has input AND speed > Threshold. Prevents micro-movements. */
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bShouldMove; 
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsJumping;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    float TimeToJumpApex;
 
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsFalling;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsCrouching;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bCrouchStateChanged;
+    
+    /** Helper for AnimGraph: Are we in the Sprinting State? */
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsSprinting;
+    
+    /** Helper for AnimGraph: Are we Aiming Down Sights? */
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsAiming;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsArmed;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsLocallyControlled;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    bool bIsRunningIntoWall;
+    
+    /** The "Source of Truth" replicated from the Character (Gait, Stance, etc.). */
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
+    FCharacterLayerStates LayerStates;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Location Data")
+    float DisplacementSpeed;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Location Data")
+    float DisplacementSinceLastUpdate;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Location Data")
     float Speed3D;
     
     /** Speed across the ground (cm/s). Drives blendspaces. */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Location Data")
     float GroundSpeed;
-
-    /** Gate: True if player has input AND speed > Threshold. Prevents micro-movements. */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bShouldMove; 
-
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsFalling;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsCrouching;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bCanJump;
-
-    /** True if input acceleration is non-zero (pressing WASD). */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsAccelerating;
-    
-    /** Helper for AnimGraph: Are we in the Sprinting State? */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsSprinting;
-
-    /** Helper for AnimGraph: Are we Aiming Down Sights? */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsAiming;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsArmed;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    bool bIsLocallyControlled;
-    
-    /** The "Source of Truth" replicated from the Character (Gait, Stance, etc.). */
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
-    FCharacterLayerStates LayerStates;
-    
-    // =========================================================================
-    //                        LOCOMOTION MATH
-    // =========================================================================
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    ELocomotionState LocomotionState = ELocomotionState::ELS_Idle;
-    
-    // --- START / STOP LOGIC ---
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    FRotator StartRotation;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    FRotator PrimaryRotation;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    FRotator SecondaryRotation;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    float LocomotionStartAngle;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    ELocomotionStartDirection LocomotionStartDirection;
-    
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
-    float DisplacementSpeed;
-
-    // 0.0 = Idle, 1.0 = Walk, 2.0 = Run
-    UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
-    float LocomotionStateValue;
     
     // =========================================================================
     //                   TURN IN PLACE & ROTATION
@@ -361,56 +330,35 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
     float PitchPerBoneInterpSpeed = 10.0f;
     
-    /** 
-     * Controls how fast the locomotion state value (0=Idle, 1=Walk, 2=Run) smooths out. 
-     * Higher = Snappier, Lower = Smoother blending.
-     */
+    /** How fast the legs twist to match the movement direction. Lower = Heavier/Smoother. */
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Movement")
-    float LocomotionCurveInterpSpeed = 10.f;
+    float LocomotionAngleInterpSpeed = 10.0f;
     
     UPROPERTY(BlueprintReadOnly, Category = "Configuration|Data")
     float GroundDistance = -1.0f;
-    
+
 private:
     // Internal location tracking for displacement calc
     FVector WorldLocation;
-    float DisplacementSinceLastUpdate;
-    bool bIsFirstUpdate = true;
     FDelegateHandle OnWeaponEquippedDelegateHandle;
-    
-    // Internal variables for Aim Offset
-    FRotator MovingRotation;
-    FRotator LastMovingRotation;
-    float YawExcess;
-    float YawRate;
-    float LastRootYawOffset;
-    float AbsoluteRootYawOffset;
+    float CardinalDirectionDeadZone = 10.f;
 
     // =========================================================================
     //                        INTERNAL FUNCTIONS
     // =========================================================================
 
     void UpdateReferences();
-    
-    /** Gathers simple float/bool/vector data from the character. */
-    void CalculateEssentialData();
-    
-    /** Determines if we are Idle, Walking, Running, etc. */
-    void CalculateLocomotionState();
-    
-    void CalculateLocationData(float DeltaTime);
-    
-    /** Determines which Start Animation (Left, Right, Forward) to play. */
-    void CalculateLocomotionStartDirection(float StartAngle);
-    
-    /** Calculates smooth spine bending. */
-    void CalculatePitchValuePerBone();
-    
-    void CalculateAimOffsets();
+    void UpdateLocationData(float DeltaTime);
+    void UpdateRotationData();
+    void UpdateVelocityData(float DeltaTime);
+    void UpdateAccelerationData();
+    void UpdateCharacterState();
+    void UpdateAimingData();
+    void UpdateJumpFallData();
+    void UpdateWallDetectionHeuristic();
     
     /** Calculates Left Hand IK target based on weapon socket. */
     void CalculateLeftHandTransform();
-    
     /**
      * Calculates the precise hand offsets needed to align the weapon sights with the camera.
      * Handles both Local Player (True Camera) and Remote Player (Proxy Camera) logic.
@@ -421,6 +369,50 @@ private:
     UFUNCTION()
     void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
     
-    UFUNCTION(BlueprintCallable)
-    void UpdateOnLocomotionEnter();
+    ELocomotionCardinalDirection SelectCardinalDirectionFromAngle(float NewAngle, float NewDeadZone, ELocomotionCardinalDirection CurrentDirection, bool bUseCurrentDirection) const;
+    
+public:
+    
+    // =========================================================================
+    //                        THREADSAFE FUNCTIONS
+    // =========================================================================
+    
+    UFUNCTION(BlueprintPure, Category = "References", meta=(BlueprintThreadSafe))
+    FORCEINLINE UFPSCharacterMovementComponent* GetMovementComponent() const
+    {
+        return TryGetPawnOwner()->GetMovementComponent() ? Cast<UFPSCharacterMovementComponent>(TryGetPawnOwner()->GetMovementComponent()) : nullptr;
+    }
+    
+    UFUNCTION(BlueprintPure, Category = "References", meta=(BlueprintThreadSafe))
+    FORCEINLINE AFPSPlayerCharacter* GetFPSCharacter() const
+    {
+        return TryGetPawnOwner() ? Cast<AFPSPlayerCharacter>(TryGetPawnOwner()) : nullptr;
+    }
+    
+    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE FTurnInPlaceAnimSet GetTurnAnimSet() { return TurnInPlaceAnimGraphData.AnimSet; }
+    
+    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE UAnimSequence* GetTurnAnimation(const bool bRecover) { return UTurnInPlaceStatics::GetTurnInPlaceAnimation(GetTurnAnimSet(), TurnInPlaceGraphNodeData, bRecover); }
+
+    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE float GetAnimStateTimeNodeData() const { return TurnInPlaceGraphNodeData.AnimStateTime; }
+    
+    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE void SetHasReachedMaxTurnAngleNodeData(bool NewHasReachedMaxTurnAngle) { TurnInPlaceGraphNodeData.bHasReachedMaxTurnAngle = NewHasReachedMaxTurnAngle; }
+    
+    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE void SetStepSizeNodeData(int32 NewStepSize) { TurnInPlaceGraphNodeData.StepSize = NewStepSize; }
+    
+    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE void SetIsTurningRightNodeData(bool NewIsTurningRight) { TurnInPlaceGraphNodeData.bIsTurningRight = NewIsTurningRight; }
+    
+    UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    FORCEINLINE void SetAnimStateTimeNodeData(float NewAnimStateTime) { TurnInPlaceGraphNodeData.AnimStateTime = NewAnimStateTime; }
+    
+    UFUNCTION(BlueprintPure, Category="Distance Matching", meta=(BlueprintThreadSafe))
+    float GetPredictedStopDistance() const;
+    
+    UFUNCTION(BlueprintPure, Category="Distance Matching", meta=(BlueprintThreadSafe))
+    bool ShouldDistanceMatchStop() const;
 };

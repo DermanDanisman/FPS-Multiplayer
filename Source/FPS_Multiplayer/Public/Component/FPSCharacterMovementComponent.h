@@ -71,10 +71,10 @@ protected:
 	
 	// Cache these values from UpdateMovementSettings so we can swap between them
 	UPROPERTY(EditDefaultsOnly, Category = "Config|Movement")
-	float RunSpeed = 300.f;
+	float RunSpeed = 450.f;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Config|Movement")
-	float WalkSpeed = 150.f;
+	float WalkSpeed = 180.f;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Config|Movement")
 	float SprintSpeed = 600.f;
