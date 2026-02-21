@@ -26,3 +26,21 @@ struct FCharacterLayerStates
 	UPROPERTY(BlueprintReadOnly, Category = "Layer States")
 	EAimState AimState = EAimState::EAS_None;
 };
+
+USTRUCT(BlueprintType)
+struct FLocomotionAnimCardinalDirections
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion Cardinal Directions")
+	TObjectPtr<UAnimSequence> Forward;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion Cardinal Directions")
+	TObjectPtr<UAnimSequence> Backward;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion Cardinal Directions")
+	TObjectPtr<UAnimSequence> Left;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion Cardinal Directions")
+	TObjectPtr<UAnimSequence> Right;
+};

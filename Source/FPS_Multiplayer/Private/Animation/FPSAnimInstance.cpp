@@ -139,10 +139,13 @@ void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	UpdateProceduralAimingInterp(DeltaSeconds);
 
 	// Complete Turn in Place
-	TurnInPlaceCurveValues =
-		UTurnInPlaceStatics::ThreadSafeUpdateTurnInPlaceCurveValues(this, TurnInPlaceAnimGraphData);
-	UTurnInPlaceStatics::ThreadSafeUpdateTurnInPlace(TurnInPlaceAnimGraphData, bCanUpdateTurnInPlace, bIsStrafing,
-	                                                 TurnInPlaceAnimGraphOutput);
+	TurnInPlaceCurveValues = UTurnInPlaceStatics::ThreadSafeUpdateTurnInPlaceCurveValues(this, TurnInPlaceAnimGraphData);
+	UTurnInPlaceStatics::ThreadSafeUpdateTurnInPlace(
+		TurnInPlaceAnimGraphData, 
+		bCanUpdateTurnInPlace, 
+		bIsStrafing,
+		TurnInPlaceAnimGraphOutput
+	);
 }
 
 #pragma endregion Lifecycle
@@ -191,13 +194,18 @@ void UFPSAnimInstance::UpdateVelocityData(float DeltaTime)
 	CurrentRot = FMath::RInterpTo(CurrentRot, TargetRot, DeltaTime, LocomotionAngleInterpSpeed);
 	SmoothedLocomotionAngle = CurrentRot.Yaw;
 
-	LocalVelocityDirection = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngleWithOffset,
-	                                                          CardinalDirectionDeadZone, LocalVelocityDirection,
-	                                                          bWasMovingLastUpdate);
-	LocalVelocityDirectionNoOffset = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngle,
-	                                                                  CardinalDirectionDeadZone,
-	                                                                  LocalVelocityDirectionNoOffset,
-	                                                                  bWasMovingLastUpdate);
+	LocalVelocityDirection = SelectCardinalDirectionFromAngle(
+		LocalVelocityDirectionAngleWithOffset,
+		CardinalDirectionDeadZone, LocalVelocityDirection,
+		bWasMovingLastUpdate
+	);
+	
+	LocalVelocityDirectionNoOffset = SelectCardinalDirectionFromAngle(
+		LocalVelocityDirectionAngle,
+		CardinalDirectionDeadZone,
+		LocalVelocityDirectionNoOffset,
+		bWasMovingLastUpdate
+	);
 }
 
 void UFPSAnimInstance::UpdateAccelerationData()
@@ -274,8 +282,7 @@ void UFPSAnimInstance::GatherLeftHandTransform()
 	AFPSWeapon* EquippedWeapon = Character->GetCombatComponent()->GetEquippedWeapon();
 	if (!EquippedWeapon || !EquippedWeapon->GetWeaponMesh()) return;
 
-	FTransform SocketTransform = EquippedWeapon->GetWeaponMesh()->
-	                                             GetSocketTransform(FName("LeftHandSocket"), RTS_World);
+	FTransform SocketTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("LeftHandSocket"), RTS_World);
 
 	FVector OutPosition;
 	FRotator OutRotation;
@@ -437,7 +444,6 @@ ELocomotionCardinalDirection UFPSAnimInstance::SelectCardinalDirectionFromAngle(
 }
 
 void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
-
 {
 	if (!NewWeapon)
 	{

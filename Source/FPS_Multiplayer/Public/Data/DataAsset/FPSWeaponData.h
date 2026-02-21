@@ -19,7 +19,6 @@ struct FWeaponMovementData
 {
 	GENERATED_BODY()
 	
-	// --- THE FIX ---
 	// Now you can choose Pistol, Rifle, Unarmed, etc. in the Data Asset!
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Animation State")
 	EOverlayState OverlayState = EOverlayState::EOS_Rifle;

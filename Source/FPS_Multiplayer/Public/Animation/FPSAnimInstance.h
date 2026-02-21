@@ -7,15 +7,8 @@
 #include "TurnInPlaceStatics.h"
 #include "Animation/AnimInstance.h"
 #include "Character/FPSPlayerCharacter.h"
-#include "Component/FPSCharacterMovementComponent.h"
 #include "Data/Structs/FPSCharacterDataContainer.h"
 #include "FPSAnimInstance.generated.h"
-
-// Forward Declarations
-class UFPSCharacterMovementComponent;
-class UCharacterMovementComponent;
-class AFPSPlayerCharacter;
-class AFPSWeapon;
 
 #pragma region Enums
 
@@ -28,15 +21,6 @@ enum class ELocomotionCardinalDirection : uint8
     LSD_Left       UMETA(DisplayName = "Left"),
     LSD_Backward   UMETA(DisplayName = "Backward"),
     LSD_MAX        UMETA(Hidden)
-};
-
-UENUM(BlueprintType)
-enum class ELocomotionState : uint8
-{
-    ELS_Idle      UMETA(DisplayName = "Idle"),
-    ELS_Walk      UMETA(DisplayName = "Walk"),
-    ELS_Run       UMETA(DisplayName = "Run"),
-    ELS_Sprint    UMETA(DisplayName = "Sprint")
 };
 
 #pragma endregion Enums
