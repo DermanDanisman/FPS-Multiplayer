@@ -40,6 +40,7 @@ enum class EOverlayState : uint8
 {
 	EOS_Unarmed     UMETA(DisplayName = "Unarmed"),
 	EOS_Rifle       UMETA(DisplayName = "Rifle (2 Handed)"),
+	EOS_Shotgun     UMETA(DisplayName = "Shotgun"),
 	EOS_Pistol      UMETA(DisplayName = "Pistol (1 or 2 Handed)"),
 	EOS_Knife       UMETA(DisplayName = "Knife (1 Handed)"),
 };

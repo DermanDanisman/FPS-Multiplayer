@@ -11,7 +11,7 @@
 #include "Data/Structs/FPSCharacterDataContainer.h"
 #include "FPSAnimInstance.generated.h"
 
-// Forward declarations to reduce compile time dependencies
+// Forward Declarations
 class UFPSCharacterMovementComponent;
 class UCharacterMovementComponent;
 class AFPSPlayerCharacter;
@@ -62,19 +62,45 @@ public:
     
     virtual void NativeInitializeAnimation() override;
     virtual void NativeUninitializeAnimation() override;
-
-    // Called every frame on the Game Thread.
-    // Safe to access UObjects (Character, MovementComponent, Weapons).
+    
+    // --- THE THREAD-SAFE SPLIT ---
+    // 1. Game Thread: Gathers raw data from components. Safe to access UObjects (Character, MovementComponent, Weapons).
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+    // 2. Worker Thread: Runs heavy math in parallel using cached data.
+    virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
     
     // --- TURN IN PLACE INTERFACE ---
     virtual FTurnInPlaceAnimSet GetTurnInPlaceAnimSet_Implementation() const override
     {
-        if (bIsCrouching)
+        switch (LayerStates.OverlayState) 
         {
-            return TurnInPlaceAnimSetCrouched;
-        } 
-        return TurnInPlaceAnimSet;
+            case EOverlayState::EOS_Unarmed:
+                if (bIsCrouching)
+                {
+                    return TurnInPlaceAnimSetCrouched;
+                } 
+                return TurnInPlaceAnimSet;
+                
+            case EOverlayState::EOS_Rifle:
+            case EOverlayState::EOS_Shotgun:
+                if (bIsCrouching)
+                {
+                    return TurnInPlaceRifleAnimSetCrouched;
+                } 
+                return TurnInPlaceRifleAnimSet;
+
+            case EOverlayState::EOS_Pistol:
+                if (bIsCrouching)
+                {
+                    return TurnInPlacePistolAnimSetCrouched;
+                } 
+                return TurnInPlacePistolAnimSet;
+                
+            case EOverlayState::EOS_Knife:
+                break;
+        }
+        
+        return FTurnInPlaceAnimSet();
     };
     
     virtual FTurnInPlaceCurveValues GetTurnInPlaceCurveValues_Implementation() const override
@@ -85,14 +111,40 @@ public:
 protected:
     
     // =========================================================================
-    //                        ESSENTIAL DATA (Gathered)
+    //                   THREAD-SAFE CACHED DATA (Game Thread -> Worker Thread)
     // =========================================================================
     
-    /** Current velocity vector in World Space. */
+    UPROPERTY(Transient) FVector CachedActorLocation;
+    UPROPERTY(Transient) FRotator CachedActorRotation;
+    UPROPERTY(Transient) FVector CachedVelocity;
+    UPROPERTY(Transient) FVector CachedAcceleration;
+    UPROPERTY(Transient) FRotator CachedControlRotation;
+    UPROPERTY(Transient) FVector CachedLastUpdateVelocity;
+
+    UPROPERTY(Transient) float CachedGravityZ;
+    UPROPERTY(Transient) float CachedMaxWalkSpeed;
+    UPROPERTY(Transient) float CachedCurrentWalkSpeed;
+    UPROPERTY(Transient) float CachedBrakingFriction;
+    UPROPERTY(Transient) float CachedGroundFriction;
+    UPROPERTY(Transient) float CachedBrakingFrictionFactor;
+    UPROPERTY(Transient) float CachedBrakingDecelerationWalking;
+
+    UPROPERTY(Transient) TEnumAsByte<EMovementMode> CachedMovementMode;
+    UPROPERTY(Transient) bool bCachedIsMovingOnGround;
+    UPROPERTY(Transient) bool bCachedIsCrouching;
+    UPROPERTY(Transient) bool bCachedOrientRotationToMovement;
+    UPROPERTY(Transient) bool bCachedUseSeparateBrakingFriction;
+    
+    /** The target transform calculated on Game Thread, smoothed on Worker Thread */
+    UPROPERTY(Transient) FTransform DesiredHandTransformTarget;
+    
+    // =========================================================================
+    //                        ESSENTIAL DATA (Calculated)
+    // =========================================================================
+    
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     FVector WorldVelocity;
     
-    /** Current velocity ignoring Z axis (useful for ground speed). */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     FVector WorldVelocity2D;
     
@@ -114,11 +166,9 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     bool bHasVelocity;
     
-    /** The smoothed angle fed directly into the Orientation Warping node */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     float SmoothedLocomotionAngle;
     
-    /** Current acceleration (Input intent) from the Movement Component. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
     FVector WorldAcceleration;
     
@@ -133,7 +183,7 @@ protected:
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsOnGround;
-    /** Gate: True if player has input AND speed > Threshold. Prevents micro-movements. */
+    
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bShouldMove; 
     
@@ -152,11 +202,9 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bCrouchStateChanged;
     
-    /** Helper for AnimGraph: Are we in the Sprinting State? */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsSprinting;
     
-    /** Helper for AnimGraph: Are we Aiming Down Sights? */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsAiming;
     
@@ -169,7 +217,6 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsRunningIntoWall;
     
-    /** The "Source of Truth" replicated from the Character (Gait, Stance, etc.). */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     FCharacterLayerStates LayerStates;
     
@@ -182,24 +229,53 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Location Data")
     float Speed3D;
     
-    /** Speed across the ground (cm/s). Drives blendspaces. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Location Data")
     float GroundSpeed;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
+    FVector InputVector;
+    
+    // =========================================================================
+    //                        LOCOMOTION MATH
+    // =========================================================================
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
+    FRotator StartRotation;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
+    FRotator PrimaryRotation;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
+    FRotator SecondaryRotation;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
+    float LocomotionStartAngle;
+    
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Locomotion")
+    ELocomotionCardinalDirection LocomotionStartDirection;
     
     // =========================================================================
     //                   TURN IN PLACE & ROTATION
     // =========================================================================
     
-    // Internal Turn In Place Variables
-    
-    // This holds your Step Sizes, Angles, and Animation Assets.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Unarmed")
     FTurnInPlaceAnimSet TurnInPlaceAnimSet;
     
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Unarmed")
     FTurnInPlaceAnimSet TurnInPlaceAnimSetCrouched;
     
-    // This Struct holds all the decisions: "bWantsToTurn", "StepSize", "TurnAngle", etc.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Rifle")
+    FTurnInPlaceAnimSet TurnInPlaceRifleAnimSet;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Rifle")
+    FTurnInPlaceAnimSet TurnInPlaceRifleAnimSetCrouched;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Pistol")
+    FTurnInPlaceAnimSet TurnInPlacePistolAnimSet;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Pistol")
+    FTurnInPlaceAnimSet TurnInPlacePistolAnimSetCrouched;
+    
     UPROPERTY(Transient, BlueprintReadWrite, Category = "Turn In Place")
     FTurnInPlaceAnimGraphData TurnInPlaceAnimGraphData;
     
@@ -209,71 +285,45 @@ protected:
     UPROPERTY(Transient, BlueprintReadWrite, Category = "Turn In Place")
     FTurnInPlaceGraphNodeData TurnInPlaceGraphNodeData;
     
-    // Cache for Thread Safety
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     FTurnInPlaceCurveValues TurnInPlaceCurveValues;
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     bool bIsStrafing = false;
     
-    // STATE: Tracks if we hit the max angle during this specific turn. 
-    // Must be in Header so it persists across frames.
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     bool bCanUpdateTurnInPlace;
     
-    /** The actual value fed into the "Rotate Root Bone" node in AnimGraph */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     float RootYawOffset;
-    
-    // =========================================================================
-    //                        AIM OFFSETS (Spine)
+
+   // =========================================================================
+    //                        AIM OFFSETS & ADS
     // =========================================================================
 
-    // This value comes from Control Rotation (Up/Down)
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aim Offset")
     float AimPitch;
     
-    /** 
-     * Distributed pitch value (Total Pitch / Num Bones). 
-     * Used to smooth spine curvature so the character doesn't fold in half.
-     */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "AimOffset")
     FRotator PitchValuePerBone;
-
-    // =========================================================================
-    //                  PROCEDURAL AIMING (ADS & WEAPONS)
-    // =========================================================================
     
-    /**
-     * Controls interpolation speed for Procedural Hand Transform.
-     * Higher (20+) = Snappy/Instant alignment. 
-     * Lower (10-) = Smooth/Floaty alignment (gun feels heavy).
-     */
     UPROPERTY(Transient, EditDefaultsOnly, Category = "Aiming")
     float AimInterpSpeed = 15.0f;
     
-    /** * The Cache: Stores the calculated transform for EVERY sight on the gun.
-     * Index 0 = Iron Sights, Index 1 = Red Dot, etc.
-     */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     TArray<FTransform> HandTransforms;
     
-    /** The actual transform applied to the hand bone this frame (after interpolation). */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     FTransform CurrentHandTransform;
     
-    /** OUTPUT: The location to drive the IK/Bone modification in AnimGraph. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     FVector HandLocation;
 
-    /** OUTPUT: The rotation to drive the IK/Bone modification in AnimGraph. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     FRotator HandRotation;
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|FABRIK")
     FTransform LeftHandTargetTransform;
-    
-    // --- Cached Weapon Data (Updated on Equip) ---
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     float TimeToAim;
@@ -293,27 +343,21 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Two Bone IK")
     FVector CurrentRightHandJointTargetLocation;
     
-    /** Which sight slot are we using? (0 = Iron Sights, 1 = Red Dot, etc.) */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|State")
     int32 CurrentSightIndex = 0;
     
-    /**
-     * Optimized struct to hold pre-parsed sight data.
-     * Avoids string manipulation and component iteration during runtime.
-     */
     struct FCachedSightData
     {
        bool bIsOptic; 
        int32 SightIndex; 
        TWeakObjectPtr<UMeshComponent> Mesh; 
-       FName SocketNameA; // Front/Optic
-       FName SocketNameB; // Rear (if Irons)
-       TWeakObjectPtr<UMeshComponent> RearMesh; // If rear sight is separate
+       FName SocketNameA; 
+       FName SocketNameB; 
+       TWeakObjectPtr<UMeshComponent> RearMesh; 
        
        bool operator<(const FCachedSightData& Other) const { return SightIndex < Other.SightIndex; }
     };
 
-    /** The clean list of sights. */
     TArray<FCachedSightData> CachedSights;
     
     // =========================================================================
@@ -326,11 +370,9 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Skeleton")
     FName HeadBoneName = FName("head");
     
-    /** Interpolation speed for spine bending. Higher = Snappier. */
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
     float PitchPerBoneInterpSpeed = 10.0f;
     
-    /** How fast the legs twist to match the movement direction. Lower = Heavier/Smoother. */
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Movement")
     float LocomotionAngleInterpSpeed = 10.0f;
     
@@ -348,24 +390,22 @@ private:
     // =========================================================================
 
     void UpdateReferences();
+    
+    // Game Thread: Gathers socket and component transforms
+    void GatherLeftHandTransform();
+    void GatherProceduralAimingTarget();
+    
+    // Worker Thread: Thread-safe math updates
     void UpdateLocationData(float DeltaTime);
     void UpdateRotationData();
     void UpdateVelocityData(float DeltaTime);
     void UpdateAccelerationData();
     void UpdateCharacterState();
-    void UpdateAimingData();
+    void UpdateAimingData(float DeltaTime);
     void UpdateJumpFallData();
     void UpdateWallDetectionHeuristic();
+    void UpdateProceduralAimingInterp(float DeltaTime);
     
-    /** Calculates Left Hand IK target based on weapon socket. */
-    void CalculateLeftHandTransform();
-    /**
-     * Calculates the precise hand offsets needed to align the weapon sights with the camera.
-     * Handles both Local Player (True Camera) and Remote Player (Proxy Camera) logic.
-     */
-    void CalculateHandTransforms();
-    
-    /** Event listener: Fires when the Combat Component successfully equips a new gun. */
     UFUNCTION()
     void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
     
@@ -376,18 +416,6 @@ public:
     // =========================================================================
     //                        THREADSAFE FUNCTIONS
     // =========================================================================
-    
-    UFUNCTION(BlueprintPure, Category = "References", meta=(BlueprintThreadSafe))
-    FORCEINLINE UFPSCharacterMovementComponent* GetMovementComponent() const
-    {
-        return TryGetPawnOwner()->GetMovementComponent() ? Cast<UFPSCharacterMovementComponent>(TryGetPawnOwner()->GetMovementComponent()) : nullptr;
-    }
-    
-    UFUNCTION(BlueprintPure, Category = "References", meta=(BlueprintThreadSafe))
-    FORCEINLINE AFPSPlayerCharacter* GetFPSCharacter() const
-    {
-        return TryGetPawnOwner() ? Cast<AFPSPlayerCharacter>(TryGetPawnOwner()) : nullptr;
-    }
     
     UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
     FORCEINLINE FTurnInPlaceAnimSet GetTurnAnimSet() { return TurnInPlaceAnimGraphData.AnimSet; }
