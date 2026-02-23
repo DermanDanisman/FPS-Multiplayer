@@ -108,7 +108,7 @@ public:
 	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-	virtual void FaceRotation(FRotator NewControlRotation, float DeltaTime = 0) override;
+	virtual void FaceRotation(FRotator NewControlRotation, float DeltaTime) override;
 	
 	// =========================================================================
 	//                        DELEGATES
@@ -130,6 +130,9 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters")
 	FORCEINLINE UFPSCombatComponent* GetCombatComponent() const { return CombatComponent; }
+	
+	/** Getter so your Combat Component can revert to this when dropping weapons */
+	TSubclassOf<UAnimInstance> GetUnarmedAnimLayerClass() const { return UnarmedAnimLayerClass; }
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE FCharacterLayerStates GetLayerStates() const { return LayerStates; }
@@ -167,6 +170,8 @@ public:
 	
 	virtual void SetCurrentWeapon(AFPSWeapon* WeaponToEquip) override;
 	virtual void PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMontage* AimedFireMontage) override;
+	virtual void PlayEquipMontage(UAnimMontage* EquipMontage) override;
+	virtual void PlayUnEquipMontage(UAnimMontage* UnEquipMontage) override;
 
 protected:
 
@@ -301,6 +306,12 @@ protected:
 	
 	UFUNCTION()
 	void OnRep_ReplicatedAcceleration();
+	
+	/** * The default animation layer class used when the player spawns or drops all weapons.
+	 * (e.g., ABP_Unarmed_Layers) 
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Animation Layers")
+	TSubclassOf<UAnimInstance> UnarmedAnimLayerClass;
 
 private:
 	

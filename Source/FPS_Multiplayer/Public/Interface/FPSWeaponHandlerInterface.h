@@ -33,4 +33,8 @@ public:
 	 * The Character decides if it should use the Hip or Aimed montage based on its own state.
 	 */
 	virtual void PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMontage* AimedFireMontage) = 0;
+	
+	virtual void PlayEquipMontage(UAnimMontage* EquipMontage) = 0;
+	
+	virtual void PlayUnEquipMontage(UAnimMontage* UnEquipMontage) = 0;
 };

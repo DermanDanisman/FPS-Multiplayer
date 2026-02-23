@@ -48,70 +48,94 @@ void UFPSCombatComponent::BeginPlay()
 
 void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 {
-	if (!IsValid(WeaponToEquip)) return;
-	
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	
-	// --- STEP 1: AUTOMATIC NETWORK ROUTING ---
-	// If we are a Client, we cannot set variables. 
-	// So, we automatically call the Server RPC and return.
-	// The Blueprint user doesn't need to know this happened!
-	if (GetOwner() && !GetOwner()->HasAuthority())
-	{
-		Server_EquipWeapon(WeaponToEquip);
-		return; // Our job on the Client is done. The Server takes over.
-	}
-	
-	// --- SERVER LOGIC START ---
-	if (OwnerCharacter)
-	{
-		// --- 1. CLEANUP OLD WEAPON ---
-		if (EquippedWeapon)
-		{
-			// Since it's a Single Delegate, we just Unbind it.
-			// This clears whatever lambda/function was attached.
-			EquippedWeapon->OnAmmoChanged.Unbind();
-		}
-		
-		// 1. Update State (Server Side)
-		EquippedWeapon = WeaponToEquip;
-		EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
-		
-		// 2. Attach Visuals (Server Side)
-		// The Server needs to see the attachment too!
-		EquippedWeapon->AttachToComponent(
-			OwnerCharacter->GetMesh(),
-			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-			EquippedWeapon->GetWeaponHandSocketName()
-		);
-		
-		// Sets the initial clip ammo count to full when a weapon picked up 
-		// (This will need proper adjustments because we cannot full the clip everytime we drop and pick up (new or already equipped) weapon)
-		EquippedWeapon->SetInitialClipAmmo();
-		
-		// 3. Set Owner
-		// Crucial for "IsLocallyControlled" checks and lag compensation later.
-		EquippedWeapon->SetOwner(OwnerCharacter);
-		
-		// 5. Stat Updates
-		if (EquippedWeapon)
-		{
-			// 1. Get the Data Packet
-			const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
+if (!IsValid(WeaponToEquip)) return;
+    
+    AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
+    if (!OwnerCharacter) return;
+    
+    // =========================================================
+    // 1. LOCAL PREDICTION (Instant feedback for the player)
+    // =========================================================
+    // If we are controlling this character locally (as a Client OR the Host),
+    // we bypass network delay and play the visuals instantly.
+    if (OwnerCharacter->IsLocallyControlled())
+    {
+        WeaponToEquip->AttachToComponent(
+            OwnerCharacter->GetMesh(),
+            FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+            WeaponToEquip->GetWeaponHandSocketName()
+        );
+        
+        OwnerCharacter->GetMesh()->LinkAnimClassLayers(WeaponToEquip->GetEquippedAnimInstanceClass());
+        
+        // Sync local physics immediately to prevent rubber-banding
+        const FWeaponMovementData& WeaponData = WeaponToEquip->GetMovementData();
+        OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData);
+        OwnerCharacter->SetOverlayState(WeaponData.OverlayState);
+        
+        // Play the montage instantly
+        if (OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
+        {
+            if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
+            {
+                WeaponHandler->PlayEquipMontage(WeaponToEquip->GetEquipMontage());
+            }
+        }
+    }
 
-			// 2. Apply Physics to Character
-			if (AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(GetOwner()))
-			{
-				// Server applies speed limits (Anti-Cheat / Logic)
-				FPSChar->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData);
-				FPSChar->SetOverlayState(WeaponData.OverlayState);
-			}
-			
-			MonitorWeapon(EquippedWeapon);
-			// Server broadcasts delegate locally (for logic running on server)
-			OnWeaponEquipped.Broadcast(EquippedWeapon);
-		}
-	}
+    // =========================================================
+    // 2. NETWORK ROUTING
+    // =========================================================
+    // If we are a Client, ask the Server to do the authoritative equip.
+    if (!OwnerCharacter->HasAuthority())
+    {
+       Server_EquipWeapon(WeaponToEquip);
+       return; // The client stops executing here.
+    }
+    
+    // =========================================================
+    // 3. SERVER AUTHORITATIVE LOGIC
+    // =========================================================
+    if (EquippedWeapon)
+    {
+       EquippedWeapon->OnAmmoChanged.Unbind();
+    }
+    
+    EquippedWeapon = WeaponToEquip;
+    EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+    
+    // If this is a Dedicated Server, or we are the Server looking at ANOTHER player,
+    // we need to run the attachment and montage for our hitboxes/server visuals.
+    // NOTE: We skip this if we are a Listen Server Host, because the Prediction Block above already did it!
+    if (!OwnerCharacter->IsLocallyControlled())
+    {
+        EquippedWeapon->AttachToComponent(
+           OwnerCharacter->GetMesh(),
+           FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+           EquippedWeapon->GetWeaponHandSocketName()
+        );
+        
+        OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
+        
+        if (OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
+        {
+           if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
+           {
+              WeaponHandler->PlayEquipMontage(EquippedWeapon->GetEquipMontage());
+           }
+        }
+    }
+    
+    EquippedWeapon->SetInitialClipAmmo();
+    EquippedWeapon->SetOwner(OwnerCharacter);
+    
+    // Apply authoritative physics
+    const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
+    OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData);
+    OwnerCharacter->SetOverlayState(WeaponData.OverlayState);
+    
+    MonitorWeapon(EquippedWeapon);
+    OnWeaponEquipped.Broadcast(EquippedWeapon);
 }
 
 void UFPSCombatComponent::Server_EquipWeapon_Implementation(AFPSWeapon* WeaponToEquip)
@@ -122,53 +146,52 @@ void UFPSCombatComponent::Server_EquipWeapon_Implementation(AFPSWeapon* WeaponTo
 
 void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 {
-	// --- CLIENT VISUALS ---
-	// This runs when the variable update arrives from the Server.
-	// The Server knows the gun is attached, but the Client's engine doesn't know WHERE to put it yet.
-	// This is where we handle the JITTER FIX.
-	
-	// --- 1. CLEANUP OLD WEAPON ---
 	if (LastEquippedWeapon)
 	{
 		LastEquippedWeapon->OnAmmoChanged.Unbind();
 	}
     
 	if (!IsValid(EquippedWeapon)) return;
-	
-	// 1. Update Weapon Physics locally (Client Visuals)
+    
 	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
-	
-	// 2. Attach Visuals (Client Side)
-	// Snap the mesh to the hand socket.
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+    
+	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
-		EquippedWeapon->AttachToComponent(
-			OwnerCharacter->GetMesh(),
-			FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-			EquippedWeapon->GetWeaponHandSocketName()
-		);
-		
-		EquippedWeapon->SetOwner(OwnerCharacter);
-		
-		// --- 3. JITTER FIX (Prediction) ---
-		// We must apply the MaxWalkSpeed update on the Client immediately.
-		// If we don't, the Client tries to move at 600 speed, Server forces 300, causing rubber-banding.
-		AFPSPlayerCharacter* FPSChar = Cast<AFPSPlayerCharacter>(OwnerCharacter);
-		if (IsValid(FPSChar))
+		// =========================================================
+		// SIMULATED PROXIES (Other players on your screen)
+		// =========================================================
+		// We strictly ignore the local player here. If we played the montage again, 
+		// it would interrupt the prediction montage they already started playing!
+		if (!OwnerCharacter->IsLocallyControlled())
 		{
-			const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
-            
-			// Sync Movement Speed
-			FPSChar->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData); 
-            
-			// Sync Animation Pose
-			FPSChar->SetOverlayState(WeaponData.OverlayState); 
-			
-			// 4. Notify AnimInstance to run CalculateHandTransforms!
-			MonitorWeapon(EquippedWeapon);
-			OnWeaponEquipped.Broadcast(EquippedWeapon);
+			EquippedWeapon->AttachToComponent(
+			   OwnerCharacter->GetMesh(),
+			   FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+			   EquippedWeapon->GetWeaponHandSocketName()
+			);
+           
+			OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
+           
+			// Play the montage so we see them equip it
+			if (OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
+			{
+				if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
+				{
+					WeaponHandler->PlayEquipMontage(EquippedWeapon->GetEquipMontage());
+				}
+			}
 		}
+       
+		EquippedWeapon->SetOwner(OwnerCharacter);
+       
+		// Force sync movement speeds and overlay states for everyone
+		const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
+		OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData); 
+		OwnerCharacter->SetOverlayState(WeaponData.OverlayState); 
+       
+		MonitorWeapon(EquippedWeapon);
+		OnWeaponEquipped.Broadcast(EquippedWeapon);
 	}
 }
 

@@ -138,7 +138,19 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Visuals|UI")
 	TObjectPtr<UTexture2D> CrosshairTexture; // Optional: Shotgun vs Sniper crosshair
-
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	TSubclassOf<UAnimInstance> EquippedAnimInstanceClass;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	TSubclassOf<UAnimInstance> UnEquippedAnimInstanceClass;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	TObjectPtr<UAnimMontage> EquipMontage;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	TObjectPtr<UAnimMontage> UnEquipMontage;
+	
 	/** * The animation to play on the Character when firing.
 	 * @setup Create a Montage from your Fire Sequence. 
 	 * @settings Inside the Montage, set the "Slot" to something like "ActionSlot" or "FireSlot".

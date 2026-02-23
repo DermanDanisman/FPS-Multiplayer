@@ -10,6 +10,30 @@
 #include "Data/Structs/FPSCharacterDataContainer.h"
 #include "FPSAnimInstance.generated.h"
 
+#pragma region Structs
+
+class UAimOffsetBlendSpace;
+
+USTRUCT(BlueprintType)
+struct FLocomotionAnimCardinalDirections
+{
+    GENERATED_BODY()
+	
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Locomotion Cardinal Directions")
+    TObjectPtr<UAnimSequence> Forward;
+	
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Locomotion Cardinal Directions")
+    TObjectPtr<UAnimSequence> Backward;
+	
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Locomotion Cardinal Directions")
+    TObjectPtr<UAnimSequence> Left;
+	
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Locomotion Cardinal Directions")
+    TObjectPtr<UAnimSequence> Right;
+};
+
+#pragma endregion Structs
+
 #pragma region Enums
 
 /** Determines which start animation to play when moving from Idle. */
@@ -17,9 +41,10 @@ UENUM(BlueprintType)
 enum class ELocomotionCardinalDirection : uint8
 {
     LSD_Forward    UMETA(DisplayName = "Forward"),
-    LSD_Right      UMETA(DisplayName = "Right"),
-    LSD_Left       UMETA(DisplayName = "Left"),
     LSD_Backward   UMETA(DisplayName = "Backward"),
+    LSD_Left       UMETA(DisplayName = "Left"),
+    LSD_Right      UMETA(DisplayName = "Right"),
+    
     LSD_MAX        UMETA(Hidden)
 };
 
@@ -54,38 +79,7 @@ public:
     virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
     
     // --- TURN IN PLACE INTERFACE ---
-    virtual FTurnInPlaceAnimSet GetTurnInPlaceAnimSet_Implementation() const override
-    {
-        switch (LayerStates.OverlayState) 
-        {
-            case EOverlayState::EOS_Unarmed:
-                if (bIsCrouching)
-                {
-                    return TurnInPlaceAnimSetCrouched;
-                } 
-                return TurnInPlaceAnimSet;
-                
-            case EOverlayState::EOS_Rifle:
-            case EOverlayState::EOS_Shotgun:
-                if (bIsCrouching)
-                {
-                    return TurnInPlaceRifleAnimSetCrouched;
-                } 
-                return TurnInPlaceRifleAnimSet;
-
-            case EOverlayState::EOS_Pistol:
-                if (bIsCrouching)
-                {
-                    return TurnInPlacePistolAnimSetCrouched;
-                } 
-                return TurnInPlacePistolAnimSet;
-                
-            case EOverlayState::EOS_Knife:
-                break;
-        }
-        
-        return FTurnInPlaceAnimSet();
-    };
+    virtual FTurnInPlaceAnimSet GetTurnInPlaceAnimSet_Implementation() const override;
     
     virtual FTurnInPlaceCurveValues GetTurnInPlaceCurveValues_Implementation() const override
     {
@@ -242,23 +236,11 @@ protected:
     //                   TURN IN PLACE & ROTATION
     // =========================================================================
     
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Unarmed")
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
     FTurnInPlaceAnimSet TurnInPlaceAnimSet;
     
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Unarmed")
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
     FTurnInPlaceAnimSet TurnInPlaceAnimSetCrouched;
-    
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Rifle")
-    FTurnInPlaceAnimSet TurnInPlaceRifleAnimSet;
-    
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Rifle")
-    FTurnInPlaceAnimSet TurnInPlaceRifleAnimSetCrouched;
-    
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Pistol")
-    FTurnInPlaceAnimSet TurnInPlacePistolAnimSet;
-    
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place | Pistol")
-    FTurnInPlaceAnimSet TurnInPlacePistolAnimSetCrouched;
     
     UPROPERTY(Transient, BlueprintReadWrite, Category = "Turn In Place")
     FTurnInPlaceAnimGraphData TurnInPlaceAnimGraphData;
@@ -347,6 +329,75 @@ protected:
     // =========================================================================
     //                           CONFIGURATION
     // =========================================================================
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
+    TObjectPtr<UAnimSequence> Idle;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
+    TObjectPtr<UAnimSequence> IdleADS;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
+    TObjectPtr<UAnimSequence> IdleHipFire;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
+    TObjectPtr<UAnimSequence> CrouchIdle;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
+    TObjectPtr<UAnimSequence> CrouchIdleEntry;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
+    TObjectPtr<UAnimSequence> CrouchIdleExit;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Starts|Walk")
+    FLocomotionAnimCardinalDirections WalkStart;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Starts|Jog")
+    FLocomotionAnimCardinalDirections JogStart;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Starts|Crouch")
+    FLocomotionAnimCardinalDirections CrouchStart;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Cycles|Walk")
+    FLocomotionAnimCardinalDirections WalkCycle;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Cycles|Jog")
+    FLocomotionAnimCardinalDirections JogCycle;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Cycles|Crouch")
+    FLocomotionAnimCardinalDirections CrouchCycle;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Stops|Walk")
+    FLocomotionAnimCardinalDirections WalkStop;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Stops|Jog")
+    FLocomotionAnimCardinalDirections JogStop;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Stops|Crouch")
+    FLocomotionAnimCardinalDirections CrouchStop;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Jump")
+    TObjectPtr<UAnimSequence> JumpStart;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Jump")
+    TObjectPtr<UAnimSequence> JumpApex;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Jump")
+    TObjectPtr<UAnimSequence> JumpFallLand;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Jump")
+    TObjectPtr<UAnimSequence> JumpStartLoop;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Jump")
+    TObjectPtr<UAnimSequence> JumpFallLoop;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Aiming")
+    TObjectPtr<UAnimSequence> HipFirePose;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Aiming")
+    TObjectPtr<UAnimSequence> ADSFirePose;
+    
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Aiming")
+    TObjectPtr<UAimOffsetBlendSpace> AimOffsetBlendSpace;
     
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Skeleton")
     FName HandBoneName = FName("hand_r");

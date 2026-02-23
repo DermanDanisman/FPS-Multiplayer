@@ -26,6 +26,8 @@ AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitial
 	bReplicates = true;
 	SetReplicatingMovement(true);
 	
+	TurnInPlace->SetIsReplicated(true);
+	
 	// Critical: Ensures the Server calculates the animation (and curves) 
 	// even though it isn't rendering the graphics.
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
@@ -155,6 +157,13 @@ void AFPSPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	// --- INITIALIZE DEFAULT ANIMATION STATE ---
+	// Plug in the Unarmed animation cartridge the moment the player spawns.
+	if (UnarmedAnimLayerClass && GetMesh())
+	{
+		GetMesh()->LinkAnimClassLayers(UnarmedAnimLayerClass);
+	}
+	
 	if (IsLocallyControlled())
 	{
 		APlayerController* PC = GetController<APlayerController>();
@@ -250,14 +259,21 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 
 void AFPSPlayerCharacter::FaceRotation(FRotator NewControlRotation, float DeltaTime)
 {
-	// 1. Give the Plugin a chance to handle rotation first.
-	// If the plugin says "I handled it" (returned true), we stop here.
-	if (TurnInPlace && TurnInPlace->FaceRotation(GetReplicatedControlRotation(), DeltaTime))
+	if (TurnInPlace && TurnInPlace->HasValidData())
 	{
-		return;
+		// 1. Cache the old turn offset before we calculate the new one
+		const float LastTurnOffset = TurnInPlace->GetTurnOffset();
+
+		// 2. Give the Plugin a chance to handle rotation first using your custom rotation
+		if (TurnInPlace->FaceRotation(GetReplicatedControlRotation(), DeltaTime))
+		{
+			// 3. CRITICAL: Replicate the new turn offset to Simulated Proxies!
+			TurnInPlace->PostTurnInPlace(LastTurnOffset);
+			return; 
+		}
 	}
 
-	// 2. If the plugin didn't handle it (e.g. we are moving), use standard UE rotation.
+	// 4. If the plugin didn't handle it (e.g. we are moving), use standard UE rotation.
 	Super::FaceRotation(NewControlRotation, DeltaTime);
 }
 
@@ -534,6 +550,28 @@ void AFPSPlayerCharacter::PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMon
 	else if (HipFireMontage)
 	{
 		AnimInstance->Montage_Play(HipFireMontage);
+	}
+}
+
+void AFPSPlayerCharacter::PlayEquipMontage(UAnimMontage* EquipMontage)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (!AnimInstance) return;
+	
+	if (CombatComponent->GetEquippedWeapon() && EquipMontage)
+	{
+		AnimInstance->Montage_Play(EquipMontage);
+	}
+}
+
+void AFPSPlayerCharacter::PlayUnEquipMontage(UAnimMontage* UnEquipMontage)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (!AnimInstance) return;
+	
+	if (CombatComponent->GetEquippedWeapon() && UnEquipMontage)
+	{
+		AnimInstance->Montage_Play(UnEquipMontage);
 	}
 }
 

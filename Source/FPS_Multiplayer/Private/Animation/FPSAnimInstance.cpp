@@ -148,6 +148,15 @@ void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	);
 }
 
+FTurnInPlaceAnimSet UFPSAnimInstance::GetTurnInPlaceAnimSet_Implementation() const
+{
+	if (bIsCrouching)
+	{
+		return TurnInPlaceAnimSetCrouched;
+	} 
+	return TurnInPlaceAnimSet;
+}
+
 #pragma endregion Lifecycle
 
 

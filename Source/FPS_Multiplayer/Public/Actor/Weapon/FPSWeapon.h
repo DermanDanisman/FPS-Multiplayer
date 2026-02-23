@@ -122,6 +122,10 @@ public:
     FORCEINLINE float GetWeaponRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
     
     // --- Visuals & IK ---
+	FORCEINLINE TSubclassOf<UAnimInstance> GetEquippedAnimInstanceClass() { return WeaponData ? WeaponData->EquippedAnimInstanceClass : nullptr;}
+	FORCEINLINE TSubclassOf<UAnimInstance> GetUnEquippedAnimInstanceClass() { return WeaponData ? WeaponData->UnEquippedAnimInstanceClass : nullptr; }
+	FORCEINLINE UAnimMontage* GetEquipMontage() { return WeaponData ? WeaponData->EquipMontage : nullptr; }
+	FORCEINLINE UAnimMontage* GetUnEquipMontage() { return WeaponData ? WeaponData->UnEquipMontage : nullptr; }
     FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
     FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }

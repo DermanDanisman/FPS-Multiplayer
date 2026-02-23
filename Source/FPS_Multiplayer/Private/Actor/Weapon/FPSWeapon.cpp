@@ -270,7 +270,7 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 	
 	// 4. Montages & Camera Shake
 	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	if (GetOwner() && GetOwner()->Implements<UFPSWeaponHandlerInterface>())
+	if (OwnerCharacter && OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
 	{
 		IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter);
 		if (WeaponHandler)
