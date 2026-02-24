@@ -478,4 +478,10 @@ public:
     
     UFUNCTION(BlueprintPure, Category="Distance Matching", meta=(BlueprintThreadSafe))
     bool ShouldDistanceMatchStop() const;
+    
+protected:
+    
+    // Unreal Engine automatically binds this to any AnimNotify named "WeaponGrab"
+    UFUNCTION()
+    void AnimNotify_WeaponGrab();
 };

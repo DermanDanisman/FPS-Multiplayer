@@ -75,6 +75,9 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category="Combat|Internal")
     void FinishReloading();
+    
+    UFUNCTION()
+    void FinishWeaponEquip();
 
 protected:
     

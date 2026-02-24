@@ -48,32 +48,21 @@ void UFPSCombatComponent::BeginPlay()
 
 void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
 {
-if (!IsValid(WeaponToEquip)) return;
-    
+	if (!IsValid(WeaponToEquip)) return;
+        
     AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
     if (!OwnerCharacter) return;
     
     // =========================================================
-    // 1. LOCAL PREDICTION (Instant feedback for the player)
+    // 1. LOCAL PREDICTION (Instant feedback)
     // =========================================================
-    // If we are controlling this character locally (as a Client OR the Host),
-    // we bypass network delay and play the visuals instantly.
     if (OwnerCharacter->IsLocallyControlled())
     {
-        WeaponToEquip->AttachToComponent(
-            OwnerCharacter->GetMesh(),
-            FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-            WeaponToEquip->GetWeaponHandSocketName()
-        );
+        // CRITICAL FIX: We set this locally IMMEDIATELY. 
+        // Now, when the AnimNotify fires, EquippedWeapon is valid!
+        EquippedWeapon = WeaponToEquip;
+        EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
         
-        OwnerCharacter->GetMesh()->LinkAnimClassLayers(WeaponToEquip->GetEquippedAnimInstanceClass());
-        
-        // Sync local physics immediately to prevent rubber-banding
-        const FWeaponMovementData& WeaponData = WeaponToEquip->GetMovementData();
-        OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData);
-        OwnerCharacter->SetOverlayState(WeaponData.OverlayState);
-        
-        // Play the montage instantly
         if (OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
         {
             if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
@@ -86,11 +75,10 @@ if (!IsValid(WeaponToEquip)) return;
     // =========================================================
     // 2. NETWORK ROUTING
     // =========================================================
-    // If we are a Client, ask the Server to do the authoritative equip.
     if (!OwnerCharacter->HasAuthority())
     {
        Server_EquipWeapon(WeaponToEquip);
-       return; // The client stops executing here.
+       return; 
     }
     
     // =========================================================
@@ -103,20 +91,13 @@ if (!IsValid(WeaponToEquip)) return;
     
     EquippedWeapon = WeaponToEquip;
     EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+    EquippedWeapon->SetInitialClipAmmo();
+    EquippedWeapon->SetOwner(OwnerCharacter);
     
-    // If this is a Dedicated Server, or we are the Server looking at ANOTHER player,
-    // we need to run the attachment and montage for our hitboxes/server visuals.
-    // NOTE: We skip this if we are a Listen Server Host, because the Prediction Block above already did it!
+    // CRITICAL FIX: Only play the montage on the Server if the Server is NOT the local player.
+    // This prevents the Listen Server host from playing the montage twice.
     if (!OwnerCharacter->IsLocallyControlled())
     {
-        EquippedWeapon->AttachToComponent(
-           OwnerCharacter->GetMesh(),
-           FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-           EquippedWeapon->GetWeaponHandSocketName()
-        );
-        
-        OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
-        
         if (OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
         {
            if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
@@ -125,17 +106,6 @@ if (!IsValid(WeaponToEquip)) return;
            }
         }
     }
-    
-    EquippedWeapon->SetInitialClipAmmo();
-    EquippedWeapon->SetOwner(OwnerCharacter);
-    
-    // Apply authoritative physics
-    const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
-    OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData);
-    OwnerCharacter->SetOverlayState(WeaponData.OverlayState);
-    
-    MonitorWeapon(EquippedWeapon);
-    OnWeaponEquipped.Broadcast(EquippedWeapon);
 }
 
 void UFPSCombatComponent::Server_EquipWeapon_Implementation(AFPSWeapon* WeaponToEquip)
@@ -158,22 +128,11 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
-		// =========================================================
-		// SIMULATED PROXIES (Other players on your screen)
-		// =========================================================
-		// We strictly ignore the local player here. If we played the montage again, 
-		// it would interrupt the prediction montage they already started playing!
+		// --- SIMULATED PROXIES ---
 		if (!OwnerCharacter->IsLocallyControlled())
 		{
-			EquippedWeapon->AttachToComponent(
-			   OwnerCharacter->GetMesh(),
-			   FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-			   EquippedWeapon->GetWeaponHandSocketName()
-			);
-           
-			OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
-           
-			// Play the montage so we see them equip it
+			// Notice we DO NOT attach the mesh or link layers yet!
+			// We ONLY play the montage. The AnimNotify will handle the rest.
 			if (OwnerCharacter->Implements<UFPSWeaponHandlerInterface>())
 			{
 				if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
@@ -185,13 +144,10 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
        
 		EquippedWeapon->SetOwner(OwnerCharacter);
        
-		// Force sync movement speeds and overlay states for everyone
+		// Force sync movement speeds for prediction
 		const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
 		OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData); 
 		OwnerCharacter->SetOverlayState(WeaponData.OverlayState); 
-       
-		MonitorWeapon(EquippedWeapon);
-		OnWeaponEquipped.Broadcast(EquippedWeapon);
 	}
 }
 
@@ -409,6 +365,29 @@ void UFPSCombatComponent::FinishReloading()
 	// Do NOT call MonitorWeapon() here.
 	OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetMaxClipAmmo());
 	OnCarriedAmmoChanged.Broadcast(CarriedAmmo);
+}
+
+void UFPSCombatComponent::FinishWeaponEquip()
+{
+	if (!IsValid(EquippedWeapon)) return;
+    
+	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
+	if (!OwnerCharacter) return;
+
+	// 1. Attach the Visuals
+	// The hand is now perfectly positioned in the animation, so we snap the gun to it!
+	EquippedWeapon->AttachToComponent(
+		OwnerCharacter->GetMesh(),
+		FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+		EquippedWeapon->GetWeaponHandSocketName()
+	);
+    
+	// 2. Link the Animation Layers
+	OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
+    
+	// 3. Fire the Broadcasts (Updates Ammo UI, Crosshairs, etc.)
+	MonitorWeapon(EquippedWeapon);
+	OnWeaponEquipped.Broadcast(EquippedWeapon);
 }
 
 // Helper function to keep code clean

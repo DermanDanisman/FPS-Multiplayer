@@ -319,10 +319,30 @@ void UFPSAnimInstance::GatherProceduralAimingTarget()
 		DesiredHandTransformTarget = FTransform::Identity;
 		return;
 	}
+	
+	/*FTransform CameraWorldTransform;
+	// 1. LOCAL PLAYER: Use the real, mouse-driven camera.
+	if (Character->IsLocallyControlled())
+	{
+		CameraWorldTransform = Character->GetCameraComponent()->GetComponentTransform();
+	}
+	// 2. SIMULATED PROXY: Reconstruct the camera transform!
+	else
+	{
+		// Get the socket location (which moves correctly with the Aim Offset)
+		FVector ProxyCameraLoc = Character->GetMesh()->GetSocketLocation(FName("ProceduralWeaponSocket")); // or "CameraSocket" or "head"
+    
+		// Get the perfectly replicated pitch and yaw we decompressed earlier
+		FRotator ProxyCameraRot = Character->GetReplicatedControlRotation();
+    
+		// Build the fake camera transform
+		CameraWorldTransform = FTransform(ProxyCameraRot, ProxyCameraLoc);
+	}*/
 
 	FTransform HandWorldTransform = Character->GetMesh()->GetSocketTransform(HandBoneName, RTS_World);
 	FTransform HeadWorldTransform = Character->GetMesh()->GetSocketTransform(HeadBoneName, RTS_World);
 	FTransform CameraWorldTransform = Character->GetCameraComponent()->GetComponentTransform();
+	
 
 	for (const FCachedSightData& Sight : CachedSights)
 	{
@@ -564,4 +584,21 @@ bool UFPSAnimInstance::ShouldDistanceMatchStop() const
 {
 	return bHasVelocity && !bHasAcceleration;
 }
+
+#pragma endregion
+
+#pragma region Notifies
+
+void UFPSAnimInstance::AnimNotify_WeaponGrab()
+{
+	// The exact frame the hand touches the gun, this fires!
+	if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
+	{
+		if (UFPSCombatComponent* Combat = Character->GetCombatComponent())
+		{
+			Combat->FinishWeaponEquip();
+		}
+	}
+}
+
 #pragma endregion
