@@ -11,9 +11,11 @@
 #include "FPSAnimInstance.generated.h"
 
 #pragma region Structs
-
-class UAimOffsetBlendSpace;
-
+/** 
+ * Container for directional locomotion animations.
+ * Grouping these into a struct keeps the detail panel clean and makes it easy
+ * to pass an entire set of directional data (Walk, Jog, Crouch) into utility functions.
+ */
 USTRUCT(BlueprintType)
 struct FLocomotionAnimCardinalDirections
 {
@@ -31,12 +33,13 @@ struct FLocomotionAnimCardinalDirections
     UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Locomotion Cardinal Directions")
     TObjectPtr<UAnimSequence> Right;
 };
-
 #pragma endregion Structs
 
 #pragma region Enums
-
-/** Determines which start animation to play when moving from Idle. */
+/**
+ * Determines which specific directional animation to play when transitioning states 
+ * (e.g., which start-walk animation to play when moving from Idle). 
+ */
 UENUM(BlueprintType)
 enum class ELocomotionCardinalDirection : uint8
 {
@@ -47,17 +50,17 @@ enum class ELocomotionCardinalDirection : uint8
     
     LSD_MAX        UMETA(Hidden)
 };
-
 #pragma endregion Enums
 
 /**
  * Main Animation Instance for the First Person Character.
- * * ARCHITECTURE:
- * This class uses a "Gather-Read" architecture for thread safety and optimization.
- * 1. NativeUpdateAnimation (Game Thread): Extracts data from the Character/Components and calculates 'Transient' variables.
- * 2. AnimGraph (Worker Thread): Reads these pre-calculated variables to drive animations in parallel.
- * * NETWORKING NOTE:
- * Logic splits often occur between IsLocallyControlled() (The owning player) and !IsLocallyControlled() (Other players).
+ * * ARCHITECTURE OVERVIEW: "Gather-Read" (Thread-Safe)
+ * Unreal Engine 5 heavily utilizes multi-threading for animations to save CPU time.
+ * We must strictly separate our logic into two phases:
+ * 1. GAME THREAD (NativeUpdateAnimation): Safe to access Actors, Components, and the World.
+ * We 'Gather' raw data here and cache it in Transient variables.
+ * 2. WORKER THREAD (NativeThreadSafeUpdateAnimation): Runs in parallel. NOT safe to access Actors.
+ * We 'Read' the cached variables here to perform heavy math (Trigonometry, IK targets, Velocity).
  */
 UCLASS()
 class FPS_MULTIPLAYER_API UFPSAnimInstance : public UAnimInstance, public ITurnInPlaceAnimInterface
@@ -69,13 +72,22 @@ public:
     //                           LIFECYCLE
     // =========================================================================
     
+    /** Called once when the AnimInstance is first created. Setup pointers and initial locations here. */
     virtual void NativeInitializeAnimation() override;
+    
+    /** Called when the AnimInstance is being destroyed. Good for cleaning up delegates/bindings. */
     virtual void NativeUninitializeAnimation() override;
     
-    // --- THE THREAD-SAFE SPLIT ---
-    // 1. Game Thread: Gathers raw data from components. Safe to access UObjects (Character, MovementComponent, Weapons).
+    /** 
+     * GAME THREAD EXECUTION: Runs every frame.
+     * Rule: Only gather data here. Do not do heavy math. Store data in 'Cached' variables.
+     */
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
-    // 2. Worker Thread: Runs heavy math in parallel using cached data.
+    
+    /** 
+     * WORKER THREAD EXECUTION: Runs every frame in parallel with other game logic.
+     * Rule: Do NOT call GetOwningActor() or access components here. Only use Cached variables.
+     */
     virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
     
     // --- TURN IN PLACE INTERFACE ---
@@ -89,8 +101,9 @@ public:
 protected:
     
     // =========================================================================
-    //                   THREAD-SAFE CACHED DATA (Game Thread -> Worker Thread)
+    //                   THREAD-SAFE CACHED DATA (Game -> Worker)
     // =========================================================================
+    // 'Transient' means these variables are not saved to disk. They only exist at runtime.
     
     UPROPERTY(Transient) FVector CachedActorLocation;
     UPROPERTY(Transient) FRotator CachedActorRotation;
@@ -113,37 +126,46 @@ protected:
     UPROPERTY(Transient) bool bCachedOrientRotationToMovement;
     UPROPERTY(Transient) bool bCachedUseSeparateBrakingFriction;
     
-    /** The target transform calculated on Game Thread, smoothed on Worker Thread */
+    /** The target IK hand transform calculated safely on the Game Thread, smoothed on the Worker Thread. */
     UPROPERTY(Transient) FTransform DesiredHandTransformTarget;
     
     // =========================================================================
     //                        ESSENTIAL DATA (Calculated)
     // =========================================================================
+    // These are the final values read directly by the Animation Blueprint graph.
     
+    /** Actual movement velocity in 3D world space. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     FVector WorldVelocity;
     
+    /** Movement velocity ignoring the Z (Up/Down) axis. Useful for ground speed. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     FVector WorldVelocity2D;
     
+    /** Velocity relative to the character's facing direction (e.g., X is always forward). */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     FVector LocalVelocity2D;
     
+    /** The angle of movement relative to where the character is looking. (-180 to 180) */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     float LocalVelocityDirectionAngle;
     
+    /** The movement angle adjusted for the current Aim Offset Yaw twist. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     float LocalVelocityDirectionAngleWithOffset;
     
+    /** Discretized direction (Forward, Backward, Left, Right) used to pick the correct animation sequence. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     ELocomotionCardinalDirection LocalVelocityDirection;
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     ELocomotionCardinalDirection LocalVelocityDirectionNoOffset;
     
+    /** True if the character is currently moving faster than a near-zero threshold. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     bool bHasVelocity;
     
+    /** Interped version of the locomotion angle to prevent blendspace snapping when changing directions. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     float SmoothedLocomotionAngle;
     
@@ -156,18 +178,21 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
     FVector LocalAcceleration2D;
     
+    /** True if the player is currently pressing a movement key/stick. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Acceleration Data")
     bool bHasAcceleration;
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsOnGround;
     
+    /** True if the character has input AND is moving fast enough to trigger locomotion animations. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bShouldMove; 
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsJumping;
     
+    /** Calculated time remaining until the character reaches the highest point of their jump arc. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     float TimeToJumpApex;
 
@@ -183,18 +208,23 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsSprinting;
     
+    /** True if holding the Aim Down Sights input. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsAiming;
     
+    /** True if a valid weapon is currently equipped in the hands. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsArmed;
     
+    /** True if this machine owns the character. False if this is another player over the network. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsLocallyControlled;
     
+    /** Heuristic flag true if the player is pressing forward but velocity is blocked by geometry. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     bool bIsRunningIntoWall;
     
+    /** Data struct representing the character's current gameplay layer (Unarmed, Rifle, Pistol, etc.) */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Character State Data")
     FCharacterLayerStates LayerStates;
     
@@ -260,25 +290,27 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     bool bCanUpdateTurnInPlace;
     
+    /** The difference between the camera's looking direction and the capsule's facing direction. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     float RootYawOffset;
 
-   // =========================================================================
-    //                        AIM OFFSETS & ADS
+    // =========================================================================
+    //                        AIM OFFSETS & PROCEDURAL AIMING
     // =========================================================================
 
+    /** The vertical angle difference between the camera and the capsule. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aim Offset")
     float AimPitch;
     
+    /** Final calculated FRotator to apply per spine bone in the AnimGraph for procedural aiming. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "AimOffset")
-    FRotator PitchValuePerBone;
+    FRotator RotationValuePerBone;
     
-    UPROPERTY(Transient, EditDefaultsOnly, Category = "Aiming")
-    float AimInterpSpeed = 15.0f;
-    
+    /** Cached array of perfectly aligned hand transforms for every sight on the current weapon. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     TArray<FTransform> HandTransforms;
     
+    /** The current smoothly interpolating hand transform (used by IK). */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     FTransform CurrentHandTransform;
     
@@ -288,6 +320,7 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Positioning")
     FRotator HandRotation;
     
+    /** The target transform for the left hand, calculated dynamically based on weapon sockets. */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|FABRIK")
     FTransform LeftHandTargetTransform;
     
@@ -309,9 +342,11 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|Two Bone IK")
     FVector CurrentRightHandJointTargetLocation;
     
+    /** Which sight index is currently active (e.g., 0 = Red Dot, 1 = Canted Irons). */
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Aiming|State")
     int32 CurrentSightIndex = 0;
     
+    /** Highly optimized data struct to cache sight socket data when a weapon is equipped. */
     struct FCachedSightData
     {
        bool bIsOptic; 
@@ -327,7 +362,7 @@ protected:
     TArray<FCachedSightData> CachedSights;
     
     // =========================================================================
-    //                           CONFIGURATION
+    //                           CONFIGURATION (Anim Sequences)
     // =========================================================================
     
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Idle")
@@ -396,8 +431,10 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Aiming")
     TObjectPtr<UAnimSequence> ADSFirePose;
     
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation Set|Aiming")
-    TObjectPtr<UAimOffsetBlendSpace> AimOffsetBlendSpace;
+    UPROPERTY(BlueprintReadOnly, Category = "Configuration|Data")
+    float GroundDistance = -1.0f;
+
+private:
     
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Skeleton")
     FName HandBoneName = FName("hand_r");
@@ -406,51 +443,134 @@ protected:
     FName HeadBoneName = FName("head");
     
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
-    float PitchPerBoneInterpSpeed = 10.0f;
+    float RotationPerBoneInterpSpeed = 10.0f;
+    
+    UPROPERTY(Transient, EditDefaultsOnly, Category = "Configuration|Aiming")
+    float AimInterpSpeed = 15.0f;
     
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Movement")
     float LocomotionAngleInterpSpeed = 10.0f;
     
-    UPROPERTY(BlueprintReadOnly, Category = "Configuration|Data")
-    float GroundDistance = -1.0f;
+    // =========================================================================
+    //                  PARALLAX & CONVERGENCE CONFIGURATION
+    // =========================================================================
 
-private:
+    /** 
+     * The physical horizontal distance (in cm) from the character's camera to the weapon's barrel.
+     * Positive values indicate the weapon is held to the Right (standard right-handed stance).
+     * This dynamically calculates the Yaw angle required to point the gun at the crosshair,
+     * preventing the weapon from shooting past the target's right shoulder (Parallax Error).
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
+    float GunHorizontalOffsetCM = 25.0f;
+
+    /** 
+     * The physical vertical distance (in cm) from the character's camera to the weapon's barrel.
+     * Negative values indicate the weapon is held Below the camera (e.g., shoulder/chest level).
+     * This dynamically calculates the Pitch angle required to tilt the gun upward,
+     * ensuring the barrel intersects the camera's line of sight at the correct distance.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
+    float GunVerticalOffsetCM = -15.0f;
+
+    /**
+     * If true, draws debug lines and spheres representing the simulated proxy's line of sight.
+     * Green Line/Red Sphere = A valid hit. The weapon will converge exactly on the red sphere.
+     * Red Line = No hit (aiming at the sky). The weapon will aim perfectly parallel.
+     */
+    UPROPERTY(EditAnywhere, Category = "Configuration|AimOffset")
+    bool bDrawProxyAimDebug = true;
+    
+    /** 
+     * Static rotation applied to perfectly align the base Aim Offset animation at infinite distance.
+     * Tweak this so the gun points perfectly straight when aiming at the sky. 
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
+    float GunPitchZeroingAngle = -5.0f; // Negative usually points the barrel down
+
+    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
+    float GunYawZeroingAngle = 0.0f;
+
+
+    // =========================================================================
+    //                  THREAD-SAFE CACHED DATA
+    // =========================================================================
+
+    /** * The physical distance to the surface the simulated proxy is currently looking at.
+     * Calculated via a zero-cost Line Trace on the Game Thread. 
+     * Read by the Worker Thread to compute the trigonometric convergence angles (Atan2) 
+     * for the procedural Aim Offset correction. Defaults to 20000.f (Infinity/Parallel).
+     */
+    UPROPERTY(Transient) 
+    float CachedAimDistance = 20000.f;
+    
     // Internal location tracking for displacement calc
     FVector WorldLocation;
     FDelegateHandle OnWeaponEquippedDelegateHandle;
+    
+    /** Degree boundary to prevent rapid switching between locomotion animations (e.g., Walk Forward vs Walk Right) */
     float CardinalDirectionDeadZone = 10.f;
+    
+    /** Interpolated rotation representing where the player is aiming. */
+    FRotator SmoothedControlRotation;
+    
+    /** Interpolated rotation representing where the physical capsule is facing. */
+    FRotator SmoothedActorRotation;
 
     // =========================================================================
     //                        INTERNAL FUNCTIONS
     // =========================================================================
 
+    /** Grabs the character and binds combat delegates. */
     void UpdateReferences();
     
-    // Game Thread: Gathers socket and component transforms
+    /** GAME THREAD: Caches the left hand IK target based on the equipped weapon's socket. */
     void GatherLeftHandTransform();
+    
+    /** GAME THREAD: Calculates the perfect spatial transform to align weapon sights with the camera. */
     void GatherProceduralAimingTarget();
     
-    // Worker Thread: Thread-safe math updates
+    /** WORKER THREAD: Calculates world and ground displacement/speed. */
     void UpdateLocationData(float DeltaTime);
-    void UpdateRotationData();
+    
+    /** WORKER THREAD: Interpolates network rotations and calculates Yaw/Pitch deltas. */
+    void UpdateRotationData(float DeltaTime);
+    
+    /** WORKER THREAD: Extracts directional angles and populates cardinal enums for blendspaces. */
     void UpdateVelocityData(float DeltaTime);
+    
+    /** WORKER THREAD: Calculates if the player is pressing movement input. */
     void UpdateAccelerationData();
+    
+    /** WORKER THREAD: Resolves jumping, falling, crouching, and aiming booleans. */
     void UpdateCharacterState();
+    
+    /** WORKER THREAD: Applies the Parallax Trigonometry to solve procedural spine IK. */
     void UpdateAimingData(float DeltaTime);
+    
+    /** WORKER THREAD: Solves the arc trajectory for jump animations. */
     void UpdateJumpFallData();
+    
+    /** WORKER THREAD: Simple heuristic to detect if the player is stuck against geometry. */
     void UpdateWallDetectionHeuristic();
+    
+    /** WORKER THREAD: Smoothly interps the procedural aim target gathered on the Game Thread. */
     void UpdateProceduralAimingInterp(float DeltaTime);
     
+    /** Delegate fired when a weapon finishes equipping. Rebuilds sight caches. */
     UFUNCTION()
     void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
     
-    ELocomotionCardinalDirection SelectCardinalDirectionFromAngle(float NewAngle, float NewDeadZone, ELocomotionCardinalDirection CurrentDirection, bool bUseCurrentDirection) const;
-    
+    /** Math utility to convert a 360-degree angle into a Cardinal Direction Enum with deadzones. */
+    ELocomotionCardinalDirection SelectCardinalDirectionFromAngle(float NewAngle, float NewDeadZone, ELocomotionCardinalDirection CurrentDirection, bool bUseCurrentDirection) const; 
+
 public:
     
     // =========================================================================
     //                        THREADSAFE FUNCTIONS
     // =========================================================================
+    // These functions use the 'BlueprintThreadSafe' meta tag so they can be 
+    // evaluated directly inside the AnimGraph nodes without causing warnings.
     
     UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
     FORCEINLINE FTurnInPlaceAnimSet GetTurnAnimSet() { return TurnInPlaceAnimGraphData.AnimSet; }
@@ -473,15 +593,19 @@ public:
     UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
     FORCEINLINE void SetAnimStateTimeNodeData(float NewAnimStateTime) { TurnInPlaceGraphNodeData.AnimStateTime = NewAnimStateTime; }
     
+    /** Predicts exactly where the character will stop based on friction, allowing animations to match distance. */
     UFUNCTION(BlueprintPure, Category="Distance Matching", meta=(BlueprintThreadSafe))
     float GetPredictedStopDistance() const;
     
+    /** Validates if the character is decelerating and should play a distance-matched stop animation. */
     UFUNCTION(BlueprintPure, Category="Distance Matching", meta=(BlueprintThreadSafe))
     bool ShouldDistanceMatchStop() const;
     
 protected:
     
-    // Unreal Engine automatically binds this to any AnimNotify named "WeaponGrab"
+    /** * EVENT NOTIFY: Unreal Engine automatically binds this to any AnimNotify named "WeaponGrab" 
+     * inside an animation sequence. Used to accurately time the weapon attachment to the hand.
+     */
     UFUNCTION()
     void AnimNotify_WeaponGrab();
 };

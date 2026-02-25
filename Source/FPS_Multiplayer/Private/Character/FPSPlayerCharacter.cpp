@@ -259,22 +259,21 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 
 void AFPSPlayerCharacter::FaceRotation(FRotator NewControlRotation, float DeltaTime)
 {
-	if (TurnInPlace && TurnInPlace->HasValidData())
-	{
-		// 1. Cache the old turn offset before we calculate the new one
-		const float LastTurnOffset = TurnInPlace->GetTurnOffset();
+	if (!Controller)
+		return;
 
-		// 2. Give the Plugin a chance to handle rotation first using your custom rotation
-		if (TurnInPlace->FaceRotation(GetReplicatedControlRotation(), DeltaTime))
-		{
-			// 3. CRITICAL: Replicate the new turn offset to Simulated Proxies!
-			TurnInPlace->PostTurnInPlace(LastTurnOffset);
-			return; 
-		}
+	FRotator RotationToUse;
+
+	if (IsLocallyControlled())
+	{
+		RotationToUse = GetControlRotation();
+	}
+	else
+	{
+		RotationToUse = GetReplicatedControlRotation();
 	}
 
-	// 4. If the plugin didn't handle it (e.g. we are moving), use standard UE rotation.
-	Super::FaceRotation(NewControlRotation, DeltaTime);
+	Super::FaceRotation(RotationToUse, DeltaTime);
 }
 
 void AFPSPlayerCharacter::Move(const FInputActionValue& Value)

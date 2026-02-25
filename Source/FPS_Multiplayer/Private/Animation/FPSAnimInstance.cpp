@@ -76,8 +76,63 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	CachedActorRotation = Character->GetActorRotation();
 	CachedVelocity = Character->GetVelocity();
 	CachedAcceleration = Movement->GetCurrentAcceleration();
-	CachedControlRotation = Character->GetReplicatedControlRotation();
+	if (Character->IsLocallyControlled())
+	{
+		CachedControlRotation = Character->GetControlRotation();
+	}
+	else
+	{
+		CachedControlRotation = Character->GetReplicatedControlRotation();
+	}
 	CachedLastUpdateVelocity = Movement->GetLastUpdateVelocity();
+	
+	// -------------------------------------------------------------------------
+    // PROXY LOOK-AT TRACE (Zero Network Bandwidth Cost)
+    // -------------------------------------------------------------------------
+    // We only run this trace on other players (Proxies). Local players use standard IK.
+    if (!Character->IsLocallyControlled())
+    {
+       // Reconstruct where the proxy's camera would be based on their head position
+       FName SocketToUse = Character->GetMesh()->DoesSocketExist(FName("CameraSocket")) ? FName("CameraSocket") : HeadBoneName;
+       FVector ProxyCameraLocation = Character->GetMesh()->GetSocketLocation(SocketToUse);
+       
+       // Create a forward vector using the pitch/yaw that was replicated over the network
+       FVector ProxyCameraDirection = CachedControlRotation.Vector();
+
+       FVector TraceStart = ProxyCameraLocation;
+       FVector TraceEnd = TraceStart + (ProxyCameraDirection * 20000.f); // Trace out 200 meters
+
+       FHitResult HitResult;
+       FCollisionObjectQueryParams ObjectQueryParams;
+       ObjectQueryParams.AddObjectTypesToQuery(ECC_Pawn);       // Hit other players
+       ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic); // Hit walls/floors
+       
+       FCollisionQueryParams Params;
+       Params.AddIgnoredActor(Character); // Don't let the proxy hit their own body
+       
+       // Perform a LineTraceSingle on the Game Thread. 
+       // This is cheap because it uses the physics spatial hash and only traces a single line.
+       bool bHit = GetWorld()->LineTraceSingleByObjectType(HitResult, TraceStart, TraceEnd, ObjectQueryParams, Params);
+       
+       if (bHit)
+       {
+          // Cache the distance so the Worker Thread can read it for trigonometry
+          CachedAimDistance = HitResult.Distance;
+          
+          if (bDrawProxyAimDebug)
+          {
+             DrawDebugLine(GetWorld(), TraceStart, HitResult.Location, FColor::Green, false, -1.f, 0, 1.f);
+             DrawDebugSphere(GetWorld(), HitResult.Location, 8.f, 12, FColor::Red, false, -1.f);
+          }
+       }
+       else
+       {
+          if (bDrawProxyAimDebug)
+          {
+             DrawDebugLine(GetWorld(), TraceStart, TraceEnd, FColor::Red, false, -1.f, 0, 1.f);
+          }
+       }
+    }
 
 	// --- 2. GATHER MOVEMENT COMPONENT DATA ---
 	CachedGravityZ = Movement->GetGravityZ();
@@ -127,7 +182,7 @@ void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 
 	// Run all complex math using CACHED data. No Actor queries allowed!
 	UpdateLocationData(DeltaSeconds);
-	UpdateRotationData();
+	UpdateRotationData(DeltaSeconds);
 	UpdateVelocityData(DeltaSeconds);
 	UpdateAccelerationData();
 	UpdateCharacterState();
@@ -173,10 +228,51 @@ void UFPSAnimInstance::UpdateLocationData(float DeltaTime)
 	GroundSpeed = WorldVelocity2D.Size();
 }
 
-void UFPSAnimInstance::UpdateRotationData()
+void UFPSAnimInstance::UpdateRotationData(float DeltaTime)
 {
-	FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(CachedControlRotation, CachedActorRotation);
+	if (bIsLocallyControlled)
+	{
+		// Local player: smooth both for visual quality
+		SmoothedControlRotation = FMath::RInterpTo(
+		   SmoothedControlRotation,
+		   CachedControlRotation,
+		   DeltaTime,
+		   15.f
+		);
+
+		SmoothedActorRotation = FMath::RInterpTo(
+		   SmoothedActorRotation,
+		   CachedActorRotation,
+		   DeltaTime,
+		   15.f
+		);
+	}
+	else
+	{
+		// Simulated proxy: Smooth both to keep the Delta stable
+		SmoothedActorRotation = FMath::RInterpTo(SmoothedActorRotation, CachedActorRotation, DeltaTime, 15.f);
+		
+		// FIX: We MUST smooth the Control Rotation for proxies!
+		// ReplicatedControlRotation arrives in discrete network packets. Interpolating it here 
+		// stops the violent spine jitter while keeping the aim highly accurate.
+		SmoothedControlRotation = FMath::RInterpTo(
+			SmoothedControlRotation, 
+			CachedControlRotation, 
+			DeltaTime, 
+			15.f // You can tweak this interpolation speed if the aim feels too "floaty" on proxies
+		);
+	}
+
+	const FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(
+	   SmoothedControlRotation,
+	   SmoothedActorRotation
+	);
+
 	AimPitch = Delta.Pitch;
+    
+	// FIX: Both local and simulated proxies now use the exact Yaw difference.
+	// This ensures the gun barrel points exactly where the ControlRotation dictates,
+	// regardless of where the capsule is currently facing.
 	RootYawOffset = Delta.Yaw;
 }
 
@@ -187,7 +283,7 @@ void UFPSAnimInstance::UpdateVelocityData(float DeltaTime)
 	WorldVelocity = CachedVelocity;
 	WorldVelocity2D = FVector(WorldVelocity.X, WorldVelocity.Y, 0.f);
 
-	LocalVelocity2D = CachedActorRotation.UnrotateVector(WorldVelocity2D);
+	LocalVelocity2D = SmoothedActorRotation.UnrotateVector(WorldVelocity2D);
 	bHasVelocity = !LocalVelocity2D.IsNearlyZero(0.000001f);
 
 	if (WorldVelocity2D.SizeSquared() > 25.0f)
@@ -249,11 +345,75 @@ void UFPSAnimInstance::UpdateCharacterState()
 
 void UFPSAnimInstance::UpdateAimingData(float DeltaTime)
 {
-	FRotator AimOffset = UKismetMathLibrary::NormalizedDeltaRotator(CachedControlRotation, CachedActorRotation);
-	float PitchPerBone = (AimOffset.Pitch / 8.0f) * -1.0f;
-	FRotator TargetPitchPerBone = FRotator(0.f, 0.f, PitchPerBone);
+	// Find the difference between where the capsule faces and where the camera aims
+    FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(
+       SmoothedControlRotation,
+       SmoothedActorRotation
+    );
 
-	PitchValuePerBone = FMath::RInterpTo(PitchValuePerBone, TargetPitchPerBone, DeltaTime, PitchPerBoneInterpSpeed);
+    float HorizontalAngleOffset = 0.f;
+    float VerticalAngleOffset = 0.f;
+
+    // Only apply convergence math to proxies, and ensure Distance > 1.0f to avoid Divide-By-Zero crashes
+    if (!bIsLocallyControlled && bIsArmed && CachedAimDistance > 1.0f)
+    {
+       // MATH EXPLANATION:
+       // We use the Inverse Tangent (Atan2) to find the angle of a right triangle.
+       // Opposite side = The physical offset of the gun from the camera (e.g., 25cm to the right)
+       // Adjacent side = The distance to the target (e.g., 800cm forward)
+       // Result = Returns Radians, which we convert to standard Unreal Degrees.
+       HorizontalAngleOffset = FMath::RadiansToDegrees(FMath::Atan2(GunHorizontalOffsetCM, CachedAimDistance));
+       VerticalAngleOffset = FMath::RadiansToDegrees(FMath::Atan2(GunVerticalOffsetCM, CachedAimDistance));
+    }
+
+    // --- STEP 1: BASE NETWORK INPUT + CALIBRATION ZEROING ---
+    // We add our zeroing angle to perfectly level out the base animations at infinite distance.
+    // We divide by 8.0f because this rotation will be applied individually across 8 spine/neck bones.
+    float YawPerBone = (Delta.Yaw + GunYawZeroingAngle) / 8.0f;
+    
+    // We multiply Pitch by -1.0f because standard UE Mannequin skeletons bend backwards on positive pitch.
+    float PitchPerBone = ((Delta.Pitch + GunPitchZeroingAngle) / 8.0f) * -1.0f;
+
+    // --- STEP 2: APPLY DYNAMIC PARALLAX CONVERGENCE ---
+    // Horizontal: Subtracting the calculated angle pulls the gun LEFT to compensate for a RIGHT shoulder.
+    YawPerBone -= (HorizontalAngleOffset / 8.0f);
+    
+    // Vertical: Because GunVerticalOffsetCM is negative (-15), VerticalAngleOffset is negative.
+    // Subtracting a negative number mathematically ADDS to the Pitch, bending the spine UP.
+    PitchPerBone -= (VerticalAngleOffset / 8.0f); 
+
+    // Combine into a target rotator (Roll is left at 0)
+    FRotator TargetPitchPerBone(0.f, YawPerBone, PitchPerBone);
+
+    // Smoothly interpolate the spine bending so network jitter doesn't snap the character's back
+    RotationValuePerBone = FMath::RInterpTo(
+       RotationValuePerBone,
+       TargetPitchPerBone,
+       DeltaTime,
+       RotationPerBoneInterpSpeed
+    );
+	
+	// ==========================================
+	// DEEP DEBUG LOGGING (Throttled to 0.5s)
+	// ==========================================
+	if (!bIsLocallyControlled && bDrawProxyAimDebug)
+	{
+		static float LogTimer = 0.0f;
+		LogTimer += DeltaTime;
+        
+		if (LogTimer >= 0.5f) // Print every half second
+		{
+			LogTimer = 0.0f;
+            
+			UE_LOG(LogTemp, Warning, TEXT("======================================"));
+			UE_LOG(LogTemp, Warning, TEXT("PROXY AIM DATA | Distance: %.1f cm"), CachedAimDistance);
+			UE_LOG(LogTemp, Log,     TEXT("1. Base Network Input  -> Pitch: %8.2f | Yaw: %8.2f"), Delta.Pitch, Delta.Yaw);
+			UE_LOG(LogTemp, Log,     TEXT("2. Static Zeroing      -> Pitch: %8.2f | Yaw: %8.2f"), GunPitchZeroingAngle, GunYawZeroingAngle);
+			UE_LOG(LogTemp, Log,     TEXT("3. Dynamic Convergence -> Vert : %8.2f | Horz: %8.2f"), VerticalAngleOffset, HorizontalAngleOffset);
+			UE_LOG(LogTemp, Warning, TEXT("4. FINAL OUTPUT / BONE -> Pitch: %8.2f | Yaw: %8.2f"), PitchPerBone, YawPerBone);
+			UE_LOG(LogTemp, Warning, TEXT("======================================"));
+		}
+	}
 }
 
 void UFPSAnimInstance::UpdateJumpFallData()
@@ -308,114 +468,147 @@ void UFPSAnimInstance::GatherLeftHandTransform()
 	LeftHandTargetTransform.SetRotation(FQuat(OutRotation));
 }
 
-// Game Thread Function
+/**
+ * GAME THREAD EXECUTED:
+ * Calculates the exact target transform for the right hand to ensure the currently selected
+ * weapon sight perfectly aligns with the character's camera.
+ */
 void UFPSAnimInstance::GatherProceduralAimingTarget()
 {
-	AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner());
-	if (!Character) return;
+    AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner());
+    if (!Character) return;
 
-	if (!Character->IsLocallyControlled())
-	{
-		DesiredHandTransformTarget = FTransform::Identity;
-		return;
-	}
-	
-	/*FTransform CameraWorldTransform;
-	// 1. LOCAL PLAYER: Use the real, mouse-driven camera.
-	if (Character->IsLocallyControlled())
-	{
-		CameraWorldTransform = Character->GetCameraComponent()->GetComponentTransform();
-	}
-	// 2. SIMULATED PROXY: Reconstruct the camera transform!
-	else
-	{
-		// Get the socket location (which moves correctly with the Aim Offset)
-		FVector ProxyCameraLoc = Character->GetMesh()->GetSocketLocation(FName("ProceduralWeaponSocket")); // or "CameraSocket" or "head"
+    // 1. PROXY BAILOUT: Simulated proxies don't use this high-precision IK logic.
+    if (!Character->IsLocallyControlled())
+    {
+       CurrentHandTransform = FTransform::Identity;
+       HandLocation = FVector::ZeroVector;
+       HandRotation = FRotator::ZeroRotator;
+       return;
+    }
     
-		// Get the perfectly replicated pitch and yaw we decompressed earlier
-		FRotator ProxyCameraRot = Character->GetReplicatedControlRotation();
+    // 2. GATHER BASE TRANSFORMS
+    // Hand: Where the right hand is currently.
+    // Head: The pivot point we will move the hand relative to.
+    FTransform HandWorldTransform = Character->GetMesh()->GetSocketTransform(HandBoneName, RTS_World);
+    FTransform HeadWorldTransform = Character->GetMesh()->GetSocketTransform(HeadBoneName, RTS_World);
     
-		// Build the fake camera transform
-		CameraWorldTransform = FTransform(ProxyCameraRot, ProxyCameraLoc);
-	}*/
+    // Camera: The absolute truth of where the player is looking.
+    FTransform CameraWorldTransform;
+    if (Character->IsLocallyControlled())
+    {
+       CameraWorldTransform = Character->GetCameraComponent()->GetComponentTransform();
+    }
+    else
+    {
+       // Reconstructed proxy camera (Fallback if the proxy bailout is removed later)
+       FVector ProxyLoc = Character->GetMesh()->GetSocketLocation(HeadBoneName);
+       FRotator ProxyRot = CachedControlRotation;
+       CameraWorldTransform = FTransform(ProxyRot, ProxyLoc);
+    }
+    
+    // 3. ITERATE OVER ALL SIGHTS ON THE WEAPON
+    for (const FCachedSightData& Sight : CachedSights)
+    {
+       if (!Sight.Mesh.IsValid()) continue;
 
-	FTransform HandWorldTransform = Character->GetMesh()->GetSocketTransform(HandBoneName, RTS_World);
-	FTransform HeadWorldTransform = Character->GetMesh()->GetSocketTransform(HeadBoneName, RTS_World);
-	FTransform CameraWorldTransform = Character->GetCameraComponent()->GetComponentTransform();
-	
+       FTransform FinalTransform = FTransform::Identity;
 
-	for (const FCachedSightData& Sight : CachedSights)
-	{
-		if (!Sight.Mesh.IsValid()) continue;
+       // =====================================================================
+       // SCENARIO A: OPTIC SIGHT (Red Dot / Holographic)
+       // Easy math: We just snap the sight's single socket to the camera center.
+       // =====================================================================
+       if (Sight.bIsOptic)
+       {
+          FTransform SightTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameA, RTS_World);
+          
+          // Math: "If I hold the gun here, where is the sight relative to my hand?"
+          FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorldTransform, SightTransform);
 
-		FTransform FinalTransform = FTransform::Identity;
+          // Shift the weapon forward/backward along the X axis so it doesn't clip into our eyeball
+          FVector AdjLoc = HandToSight.GetLocation();
+          AdjLoc.X += CurrentDistanceFromCamera;
 
-		if (Sight.bIsOptic)
-		{
-			FTransform SightTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameA, RTS_World);
-			FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorldTransform, SightTransform);
+          FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
+          
+          // Math: "Apply this relative hand position to the absolute center of the camera."
+          FTransform NewHandWorldTransform = AdjTrans * CameraWorldTransform;
+          
+          // Make it relative to the Head, since the AnimGraph expects Head-Space IK.
+          FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorldTransform, HeadWorldTransform);
+       }
+       
+       // =====================================================================
+       // SCENARIO B: IRON SIGHTS (Front and Rear Alignment)
+       // Hard math: We must mathematically bend the gun so the Front Post 
+       // perfectly occludes the Rear Post from the camera's perspective.
+       // =====================================================================
+       else
+       {
+          FVector FrontLocation = Sight.Mesh->GetSocketLocation(Sight.SocketNameA);
+          UMeshComponent* RearMeshToUse = Sight.RearMesh.IsValid() ? Sight.RearMesh.Get() : Sight.Mesh.Get();
+          if (!RearMeshToUse) continue;
 
-			FVector AdjLoc = HandToSight.GetLocation();
-			AdjLoc.X += CurrentDistanceFromCamera;
+          FTransform RearTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameB, RTS_World);
+          FVector RearLocation = RearTransform.GetLocation();
+          FRotator RearRotation = RearTransform.Rotator();
 
-			FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
-			FTransform NewHandWorldTransform = AdjTrans * CameraWorldTransform;
-			FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorldTransform, HeadWorldTransform);
-		}
-		else
-		{
-			FVector FrontLocation = Sight.Mesh->GetSocketLocation(Sight.SocketNameA);
-			UMeshComponent* RearMeshToUse = Sight.RearMesh.IsValid() ? Sight.RearMesh.Get() : Sight.Mesh.Get();
-			if (!RearMeshToUse) continue;
+          // 1. Find the 3D Vector pointing exactly from the Rear Sight to the Front Sight
+          FVector DirectionToTarget = (FrontLocation - RearLocation).GetSafeNormal();
+          
+          // 2. Get the Rear Sight's local Up and Right axes
+          FVector UpVector = UKismetMathLibrary::GetUpVector(RearRotation);
+          FVector RightVector = UKismetMathLibrary::GetRightVector(RearRotation);
 
-			FTransform RearTransform = Sight.Mesh->GetSocketTransform(Sight.SocketNameB, RTS_World);
-			FVector RearLocation = RearTransform.GetLocation();
-			FRotator RearRotation = RearTransform.Rotator();
+          // 3. DOT PRODUCTS: Project the Direction vector onto the Up and Right axes
+          float UpDot = FVector::DotProduct(DirectionToTarget, UpVector);
+          float RightDot = FVector::DotProduct(DirectionToTarget, RightVector);
 
-			FVector DirectionToTarget = (FrontLocation - RearLocation).GetSafeNormal();
-			FVector UpVector = UKismetMathLibrary::GetUpVector(RearRotation);
-			FVector RightVector = UKismetMathLibrary::GetRightVector(RearRotation);
+          // 4. ARC SINES: Convert those dot products back into physical Pitch and Yaw angles
+          float AnglePitch = UKismetMathLibrary::DegAsin(UpDot);
+          float AngleYaw = UKismetMathLibrary::DegAsin(RightDot);
 
-			float UpDot = FVector::DotProduct(DirectionToTarget, UpVector);
-			float RightDot = FVector::DotProduct(DirectionToTarget, RightVector);
+          // 5. Create rotators from these correction angles
+          FRotator PitchRot = UKismetMathLibrary::RotatorFromAxisAndAngle(RightVector, -AnglePitch);
+          FRotator YawRot = UKismetMathLibrary::RotatorFromAxisAndAngle(UpVector, AngleYaw);
 
-			float AnglePitch = UKismetMathLibrary::DegAsin(UpDot);
-			float AngleYaw = UKismetMathLibrary::DegAsin(RightDot);
+          // 6. Compose the perfect alignment rotation
+          FRotator FinalSightRotation = UKismetMathLibrary::ComposeRotators(
+             UKismetMathLibrary::ComposeRotators(PitchRot, YawRot), RearRotation);
 
-			FRotator PitchRot = UKismetMathLibrary::RotatorFromAxisAndAngle(RightVector, -AnglePitch);
-			FRotator YawRot = UKismetMathLibrary::RotatorFromAxisAndAngle(UpVector, AngleYaw);
+          // Create a new transform representing the PERFECTLY aligned rear sight
+          FTransform TrueSightTransform(FinalSightRotation, RearLocation, FVector::OneVector);
+          
+          // Now apply the same logic as the Optic (Shift away from camera, convert to head-space)
+          FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorldTransform, TrueSightTransform);
 
-			FRotator FinalSightRotation = UKismetMathLibrary::ComposeRotators(
-				UKismetMathLibrary::ComposeRotators(PitchRot, YawRot), RearRotation);
+          FVector AdjLoc = HandToSight.GetLocation();
+          AdjLoc.X = CurrentDistanceFromCamera;
 
-			FTransform TrueSightTransform(FinalSightRotation, RearLocation, FVector::OneVector);
-			FTransform HandToSight = UKismetMathLibrary::MakeRelativeTransform(HandWorldTransform, TrueSightTransform);
+          FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
+          FTransform NewHandWorld = AdjTrans * CameraWorldTransform;
+          FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorld, HeadWorldTransform);
+       }
 
-			FVector AdjLoc = HandToSight.GetLocation();
-			AdjLoc.X = CurrentDistanceFromCamera;
+       // Save to array based on the Sight Index (e.g., Index 0 = Primary, Index 1 = Canted)
+       if (HandTransforms.IsValidIndex(Sight.SightIndex))
+       {
+          HandTransforms[Sight.SightIndex] = FinalTransform;
+       }
+    }
 
-			FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
-			FTransform NewHandWorld = AdjTrans * CameraWorldTransform;
-			FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorld, HeadWorldTransform);
-		}
-
-		if (HandTransforms.IsValidIndex(Sight.SightIndex))
-		{
-			HandTransforms[Sight.SightIndex] = FinalTransform;
-		}
-	}
-
-	if (bIsAiming)
-	{
-		if (HandTransforms.IsValidIndex(CurrentSightIndex))
-			DesiredHandTransformTarget = HandTransforms[CurrentSightIndex];
-	}
-	else
-	{
-		FTransform HipTargetWorldTransform = CurrentHipFireOffset * CameraWorldTransform;
-		DesiredHandTransformTarget = UKismetMathLibrary::MakeRelativeTransform(
-			HipTargetWorldTransform, HeadWorldTransform);
-	}
+    // 4. CHOOSE THE FINAL TARGET BASED ON STATE (Hip vs ADS)
+    if (bIsAiming)
+    {
+       if (HandTransforms.IsValidIndex(CurrentSightIndex))
+          DesiredHandTransformTarget = HandTransforms[CurrentSightIndex];
+    }
+    else
+    {
+       FTransform HipTargetWorldTransform = CurrentHipFireOffset * CameraWorldTransform;
+       DesiredHandTransformTarget = UKismetMathLibrary::MakeRelativeTransform(
+          HipTargetWorldTransform, HeadWorldTransform);
+    }
 }
 
 // Worker Thread Function
@@ -423,6 +616,8 @@ void UFPSAnimInstance::UpdateProceduralAimingInterp(float DeltaTime)
 {
 	if (!bIsLocallyControlled)
 	{
+		// Only stabilize, do not reposition.
+		CurrentHandTransform = FTransform::Identity;
 		HandLocation = FVector::ZeroVector;
 		HandRotation = FRotator::ZeroRotator;
 		return;
