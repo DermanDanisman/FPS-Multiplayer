@@ -674,16 +674,24 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
 		CurrentHipFireOffset = FTransform::Identity;
 		HandTransforms.Empty();
 		CachedSights.Empty();
+		
+		GunHorizontalOffsetCM = 0.0f;
+		GunVerticalOffsetCM = 0.0f;
+		GunPitchZeroingAngle = 0.0f;
+		GunYawZeroingAngle = 0.0f;
 		return;
 	}
 	
 	bIsArmed = IsValid(NewWeapon);
 	CurrentHipFireOffset = NewWeapon->GetHipFireOffset();
 	CurrentDistanceFromCamera = NewWeapon->GetDistanceFromCamera();
-	CurrentRightHandEffectorLocation = NewWeapon->GetRightHandEffectorLocation();
 	CurrentRightHandJointTargetLocation = NewWeapon->GetRightHandJointTargetLocation();
 	TimeToAim = NewWeapon->GetTimeToAim();
 	TimeFromAim = NewWeapon->GetTimeFromAim();
+	GunHorizontalOffsetCM = NewWeapon->GetGunHorizontalOffsetCM();
+	GunVerticalOffsetCM = NewWeapon->GetGunVerticalOffsetCM();
+	GunPitchZeroingAngle = NewWeapon->GetGunPitchZeroingAngle();
+	GunYawZeroingAngle = NewWeapon->GetGunYawZeroingAngle();
 	
 	// 2. Build Sight Cache (Optimized Tag Parsing)
 	CachedSights.Empty();

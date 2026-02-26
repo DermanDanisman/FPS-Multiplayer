@@ -126,6 +126,11 @@ protected:
     UPROPERTY(Transient) bool bCachedOrientRotationToMovement;
     UPROPERTY(Transient) bool bCachedUseSeparateBrakingFriction;
     
+    /*UPROPERTY(Transient) float CachedGunHorizontalOffsetCM;
+    UPROPERTY(Transient) float CachedGunVerticalOffsetCM;
+    UPROPERTY(Transient) float CachedGunPitchZeroingAngle;
+    UPROPERTY(Transient) float CachedGunYawZeroingAngle;*/
+    
     /** The target IK hand transform calculated safely on the Game Thread, smoothed on the Worker Thread. */
     UPROPERTY(Transient) FTransform DesiredHandTransformTarget;
     
@@ -362,6 +367,30 @@ protected:
     TArray<FCachedSightData> CachedSights;
     
     // =========================================================================
+    //                  PARALLAX & CONVERGENCE CONFIGURATION
+    // =========================================================================
+    
+    UPROPERTY(Transient, VisibleAnywhere, Category = "Configuration|AimOffset")
+    float GunHorizontalOffsetCM;
+    
+    UPROPERTY(Transient, VisibleAnywhere, Category = "Configuration|AimOffset")
+    float GunVerticalOffsetCM;
+
+    /**
+     * If true, draws debug lines and spheres representing the simulated proxy's line of sight.
+     * Green Line/Red Sphere = A valid hit. The weapon will converge exactly on the red sphere.
+     * Red Line = No hit (aiming at the sky). The weapon will aim perfectly parallel.
+     */
+    UPROPERTY(EditAnywhere, Category = "Configuration|AimOffset")
+    bool bDrawProxyAimDebug = true;
+    
+    UPROPERTY(Transient, VisibleAnywhere, Category = "Configuration|AimOffset")
+    float GunPitchZeroingAngle; // Negative usually points the barrel down
+    
+    UPROPERTY(Transient, VisibleAnywhere, Category = "Configuration|AimOffset")
+    float GunYawZeroingAngle;
+    
+    // =========================================================================
     //                           CONFIGURATION (Anim Sequences)
     // =========================================================================
     
@@ -451,47 +480,6 @@ private:
     UPROPERTY(EditDefaultsOnly, Category = "Configuration|Movement")
     float LocomotionAngleInterpSpeed = 10.0f;
     
-    // =========================================================================
-    //                  PARALLAX & CONVERGENCE CONFIGURATION
-    // =========================================================================
-
-    /** 
-     * The physical horizontal distance (in cm) from the character's camera to the weapon's barrel.
-     * Positive values indicate the weapon is held to the Right (standard right-handed stance).
-     * This dynamically calculates the Yaw angle required to point the gun at the crosshair,
-     * preventing the weapon from shooting past the target's right shoulder (Parallax Error).
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
-    float GunHorizontalOffsetCM = 25.0f;
-
-    /** 
-     * The physical vertical distance (in cm) from the character's camera to the weapon's barrel.
-     * Negative values indicate the weapon is held Below the camera (e.g., shoulder/chest level).
-     * This dynamically calculates the Pitch angle required to tilt the gun upward,
-     * ensuring the barrel intersects the camera's line of sight at the correct distance.
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
-    float GunVerticalOffsetCM = -15.0f;
-
-    /**
-     * If true, draws debug lines and spheres representing the simulated proxy's line of sight.
-     * Green Line/Red Sphere = A valid hit. The weapon will converge exactly on the red sphere.
-     * Red Line = No hit (aiming at the sky). The weapon will aim perfectly parallel.
-     */
-    UPROPERTY(EditAnywhere, Category = "Configuration|AimOffset")
-    bool bDrawProxyAimDebug = true;
-    
-    /** 
-     * Static rotation applied to perfectly align the base Aim Offset animation at infinite distance.
-     * Tweak this so the gun points perfectly straight when aiming at the sky. 
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
-    float GunPitchZeroingAngle = -5.0f; // Negative usually points the barrel down
-
-    UPROPERTY(EditDefaultsOnly, Category = "Configuration|AimOffset")
-    float GunYawZeroingAngle = 0.0f;
-
-
     // =========================================================================
     //                  THREAD-SAFE CACHED DATA
     // =========================================================================

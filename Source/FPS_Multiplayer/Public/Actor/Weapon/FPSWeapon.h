@@ -122,10 +122,10 @@ public:
     FORCEINLINE float GetWeaponRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
     
     // --- Visuals & IK ---
-	FORCEINLINE TSubclassOf<UAnimInstance> GetEquippedAnimInstanceClass() { return WeaponData ? WeaponData->EquippedAnimInstanceClass : nullptr;}
-	FORCEINLINE TSubclassOf<UAnimInstance> GetUnEquippedAnimInstanceClass() { return WeaponData ? WeaponData->UnEquippedAnimInstanceClass : nullptr; }
-	FORCEINLINE UAnimMontage* GetEquipMontage() { return WeaponData ? WeaponData->EquipMontage : nullptr; }
-	FORCEINLINE UAnimMontage* GetUnEquipMontage() { return WeaponData ? WeaponData->UnEquipMontage : nullptr; }
+	FORCEINLINE TSubclassOf<UAnimInstance> GetEquippedAnimInstanceClass() const { return WeaponData ? WeaponData->EquippedAnimInstanceClass : nullptr;}
+	FORCEINLINE TSubclassOf<UAnimInstance> GetUnEquippedAnimInstanceClass() const { return WeaponData ? WeaponData->UnEquippedAnimInstanceClass : nullptr; }
+	FORCEINLINE UAnimMontage* GetEquipMontage() const { return WeaponData ? WeaponData->EquipMontage : nullptr; }
+	FORCEINLINE UAnimMontage* GetUnEquipMontage() const { return WeaponData ? WeaponData->UnEquipMontage : nullptr; }
     FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
     FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
@@ -135,9 +135,12 @@ public:
     FORCEINLINE float GetDistanceFromCamera() const { return WeaponData ? WeaponData->DistanceFromCamera : 0.f; }
     FORCEINLINE float GetTimeToAim() const { return WeaponData ? WeaponData->TimeToAim : 0.25f; }
     FORCEINLINE float GetTimeFromAim() const { return WeaponData ? WeaponData->TimeFromAim : 0.2f; }
+	FORCEINLINE float GetGunHorizontalOffsetCM() const { return WeaponData ? WeaponData->GunHorizontalOffsetCM : 5.0f; }
+	FORCEINLINE float GetGunVerticalOffsetCM() const { return WeaponData ? WeaponData->GunVerticalOffsetCM : 15.0f; }
+	FORCEINLINE float GetGunPitchZeroingAngle() const { return WeaponData ? WeaponData->GunPitchZeroingAngle : -1.75f; }
+	FORCEINLINE float GetGunYawZeroingAngle() const { return WeaponData ? WeaponData->GunYawZeroingAngle : 0.f; }
     
     // --- IK Locators ---
-    FORCEINLINE FVector GetRightHandEffectorLocation() const { return WeaponData ? WeaponData->RightHandEffectorLocation : FVector::ZeroVector; }
     FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightHandJointTargetLocation : FVector::ZeroVector; }
 
     // --- Sight Config ---

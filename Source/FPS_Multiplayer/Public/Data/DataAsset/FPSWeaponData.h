@@ -199,15 +199,40 @@ public:
      */
     UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
     FTransform HipFireOffset;
+	
+	// =========================================================================
+    //                  PARALLAX & CONVERGENCE CONFIGURATION
+    // =========================================================================
+
+    /** 
+     * The physical horizontal distance (in cm) from the character's camera to the weapon's barrel.
+     * Positive values indicate the weapon is held to the Right (standard right-handed stance).
+     * This dynamically calculates the Yaw angle required to point the gun at the crosshair,
+     * preventing the weapon from shooting past the target's right shoulder (Parallax Error).
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
+    float GunHorizontalOffsetCM = 5.0f;
+
+    /** 
+     * The physical vertical distance (in cm) from the character's camera to the weapon's barrel.
+     * Negative values indicate the weapon is held Below the camera (e.g., shoulder/chest level).
+     * This dynamically calculates the Pitch angle required to tilt the gun upward,
+     * ensuring the barrel intersects the camera's line of sight at the correct distance.
+     */
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
+    float GunVerticalOffsetCM = 15.0f;
+    
+    /** 
+     * Static rotation applied to perfectly align the base Aim Offset animation at infinite distance.
+     * Tweak this so the gun points perfectly straight when aiming at the sky. 
+     */
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
+    float GunPitchZeroingAngle = -1.75f; // Negative usually points the barrel down
+
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
+    float GunYawZeroingAngle = 0.0f;
 
     // --- TWO BONE IK (HAND PLACEMENT) ---
-	
-	/** * The procedural offset for the Right Hand IK Effector.
-	 * @usage Generally stays at (0,0,0) as the right hand is the parent, but can be used to tweak grip alignment without re-importing meshes.
-	 * @default (X=12.0, Y=3.0, Z=-5.0)
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
-	FVector RightHandEffectorLocation = FVector(12.f, 3.f, -5.f); 
 
 	/** * The Pole Vector target for the Right Elbow.
 	 * @usage Controls the direction the right elbow points. Critical for preventing the "Chicken Wing" look.
