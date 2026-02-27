@@ -141,7 +141,8 @@ public:
 	FORCEINLINE float GetGunYawZeroingAngle() const { return WeaponData ? WeaponData->GunYawZeroingAngle : 0.f; }
     
     // --- IK Locators ---
-    FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightHandJointTargetLocation : FVector::ZeroVector; }
+    FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightElbowJointLocation : FVector::ZeroVector; }
+	FORCEINLINE FVector GetLeftHandJointTargetLocation() const { return WeaponData ? WeaponData->LeftElbowJointLocation : FVector::ZeroVector; }
 
     // --- Sight Config ---
     FORCEINLINE FName GetOpticSocketName() const { return WeaponData ? WeaponData->OpticSocketName : FName(); }

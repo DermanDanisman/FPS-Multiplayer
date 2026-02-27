@@ -304,22 +304,37 @@ struct ACTORTURNINPLACE_API FTurnInPlaceParams
 		TurnAngles.Add(FTurnInPlaceTags::TurnMode_Strafe, FTurnInPlaceAngles(60.f, 135.f));
 	}
 
-	/** Enable turn in place */
+	/**
+	 * Master switch for the Turn In Place system for this specific animation set.
+	 * @configure 
+	 * - Enabled: System works normally.
+	 * - Paused: Stops accumulating turn angle (good for specific actions/root motion).
+	 * - Locked: Character completely freezes rotation.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn)
 	ETurnInPlaceEnabledState State;
 
-	/** How to determine which turn animation to play */
+	/**
+	 * How the system picks which animation to play based on your camera angle.
+	 * @configure
+	 * - Nearest: Picks the animation closest to your angle. Best for exact snapping.
+	 * - Greater: Picks the next biggest animation (e.g. at 110 deg, picks 180). Best for smooth continuous turns.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(EditCondition="State!=ETurnInPlaceEnabledState::Paused", EditConditionHides))
 	ETurnAnimSelectMode SelectMode;
 
 	/**
-	 * When selecting the animation to play, add this value to the current offset.
-	 * @warning This can offset the animation far enough that it plays an additional animation to correct the offset
+	 * An artificial boost added to your current turn angle before selecting an animation.
+	 * @usage If set to 15.0, and you turn 75 degrees, the system treats it as a 90-degree turn when picking the animation.
+	 * @warning Setting this too high can cause the system to pick animations that over-shoot your actual camera angle.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(EditCondition="State!=ETurnInPlaceEnabledState::Paused", EditConditionHides, UIMin="-180", ClampMin="-180", UIMax="180", ClampMax="180", Delta="0.1", ForceUnits="degrees"))
 	float SelectOffset;
 
-	/** Turn angles for different movement orientations */
+	/** 
+	 * Maps the Min/Max Turn Angles based on your movement mode (e.g. Strafing vs Standard).
+	 * @usage This is where you configure the 45-degree clamp for your "Armed" state! 
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(EditCondition="State!=ETurnInPlaceEnabledState::Paused", EditConditionHides))
 	TMap<FGameplayTag, FTurnInPlaceAngles> TurnAngles;
 
@@ -336,21 +351,19 @@ struct ACTORTURNINPLACE_API FTurnInPlaceParams
 	}
 
 	/**
-	 * Yaw angles where different step animations occur
-	 * Corresponding animations must be present for the anim graph to play
+	 * The literal angles of the animations you have provided in the array.
+	 * @usage If you have a 90-degree turn animation and a 180-degree turn animation, you must add '90' and '180' here.
+	 * @requirement The number of elements here MUST perfectly match the number of animations in your LeftTurns/RightTurns arrays!
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(EditCondition="State!=ETurnInPlaceEnabledState::Paused", EditConditionHides, UIMin="0", ClampMin="0", UIMax="180", ClampMax="180", Delta="1", ForceUnits="degrees"))
 	TArray<int32> StepSizes;
 
 	/**
-	 * This is only used when bUseControllerRotationYaw = true
-	 *	Not used for bOrientRotationToMovement or bUseControllerDesiredRotation
-	 *	
-	 * When we start moving we interpolate out of the turn in place at this rate
-	 * Interpolation occurs in a range of 0.0 to 1.0 so low values have a big impact on the rate
-	 *
-	 * At 1.0 it takes 1 second to interpolate out of the turn in place
-	 * At 2.0 it takes 0.5 seconds to interpolate out of the turn in place
+	 * How fast the turn-in-place twist dissolves when the player starts running.
+	 * @usage 
+	 * - 1.0 = Takes 1 second to straighten out.
+	 * - 2.0 = Takes 0.5 seconds (Faster).
+	 * - 3.0 = Takes 0.33 seconds (Snappy).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(UIMin="0", ClampMin="0", UIMax="3", Delta="0.1", ForceUnits="x"))
 	float MovingInterpOutRate;
@@ -360,9 +373,8 @@ struct ACTORTURNINPLACE_API FTurnInPlaceParams
 };
 
 /**
- * Animation set for turn in place
- * Defines the animations to play and the parameters to use
- * As well as the play rate to use when turning in the opposite direction or at max angle
+ * Animation set for turn in place.
+ * Defines the animations to play and scales their playback speed dynamically.
  */
 USTRUCT(BlueprintType)
 struct ACTORTURNINPLACE_API FTurnInPlaceAnimSet
@@ -376,33 +388,34 @@ struct ACTORTURNINPLACE_API FTurnInPlaceAnimSet
 		, bMaintainMaxAnglePlayRate(true)
 	{}
 
-	/** Parameters to use when this anim set is active */
+	/** The ruleset applied when this specific animation set is active. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn)
 	FTurnInPlaceParams Params;
 
 	/**
-	 * When playing a turn animation, if an animation in the opposite direction is triggered, scale by this play rate
-	 * Useful for quickly completing a turn that is now going the wrong way
+	 * How much to speed up the animation if the player suddenly changes direction mid-turn.
+	 * @usage 1.7x means it plays 70% faster to rapidly finish the wrong-way animation so it can start turning the correct way.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(UIMin="0", ClampMin="0", UIMax="2", ForceUnits="x"))
 	float PlayRateOnDirectionChange;
 
 	/**
-	 * Play rate to use when being clamped to max angle
-	 * Overall feel is improved if the character starts turning faster
+	 * How much to speed up the animation when the player hits the absolute maximum turn angle.
+	 * @usage If the player is flicking their mouse super fast, 1.3x speeds up the leg shuffle to help the body "keep up" with the camera.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn, meta=(UIMin="0", ClampMin="0", UIMax="2", ForceUnits="x"))
 	float PlayRateAtMaxAngle;
 
 	/**
-	 * Don't change the play rate when no longer at max angle for the in-progress turn animation
-	 * This helps when the player is using a mouse because it often causes play rate jitter
-	 * This occurs because the mouse constantly re-enters the max turn angle and then exits it, rapidly
+	 * Prevents jittery animations when using a mouse.
+	 * @usage If true, once the max angle is hit, the animation stays sped up until the turn completes. 
+	 * If false, the animation will violently speed up and slow down as the mouse crosses the exact max angle threshold back and forth. 
+	 * Leave this TRUE for PC shooters.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn)
 	bool bMaintainMaxAnglePlayRate;
 
-	/** Animations to select from when turning left */
+	/** Animations to select from when turning left (e.g. index 0 = 90 deg, index 1 = 180 deg) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Turn)
 	TArray<TObjectPtr<UAnimSequence>> LeftTurns;
 
