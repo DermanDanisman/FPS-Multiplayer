@@ -323,12 +323,14 @@ void UFPSCombatComponent::Server_Reload_Implementation()
 
 void UFPSCombatComponent::Multicast_Reload_Implementation()
 {
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
 		if (EquippedWeapon && EquippedWeapon->GetReloadMontage())
 		{
-			OwnerCharacter->GetMesh()->GetAnimInstance()->Montage_Play(EquippedWeapon->GetReloadMontage());
+			// Play on the correct mesh!
+			USkeletalMeshComponent* TargetMesh = OwnerCharacter->IsLocallyControlled() ? OwnerCharacter->GetLocalMesh() : OwnerCharacter->GetMesh();
+			TargetMesh->GetAnimInstance()->Montage_Play(EquippedWeapon->GetReloadMontage());
 		}
 	}
 }
@@ -374,18 +376,20 @@ void UFPSCombatComponent::FinishWeaponEquip()
 	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
 	if (!OwnerCharacter) return;
 
-	// 1. Attach the Visuals
-	// The hand is now perfectly positioned in the animation, so we snap the gun to it!
+	// 1. Target the correct mesh
+	USkeletalMeshComponent* TargetMesh = OwnerCharacter->IsLocallyControlled() ? OwnerCharacter->GetLocalMesh() : OwnerCharacter->GetMesh();
+
+	// 2. Attach the Visuals
 	EquippedWeapon->AttachToComponent(
-		OwnerCharacter->GetMesh(),
+		TargetMesh,
 		FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
 		EquippedWeapon->GetWeaponHandSocketName()
 	);
     
-	// 2. Link the Animation Layers
-	OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
+	// 3. Link the Animation Layers to the targeted mesh
+	TargetMesh->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
     
-	// 3. Fire the Broadcasts (Updates Ammo UI, Crosshairs, etc.)
+	// 4. Fire the Broadcasts
 	MonitorWeapon(EquippedWeapon);
 	OnWeaponEquipped.Broadcast(EquippedWeapon);
 }

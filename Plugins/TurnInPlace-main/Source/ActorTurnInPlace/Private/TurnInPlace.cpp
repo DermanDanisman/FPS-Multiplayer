@@ -240,7 +240,18 @@ USkeletalMeshComponent* UTurnInPlace::GetMesh_Implementation() const
 {
 	if (MaybeCharacter)
 	{
-		return MaybeCharacter->GetMesh();
+		USkeletalMeshComponent* MainMesh = MaybeCharacter->GetMesh();
+		
+		// FIX: If the MainMesh is a Follower (Dummy), return its Leader (Brain) instead!
+		if (MainMesh && MainMesh->LeaderPoseComponent.IsValid())
+		{
+			if (USkeletalMeshComponent* Leader = Cast<USkeletalMeshComponent>(MainMesh->LeaderPoseComponent.Get()))
+			{
+				return Leader;
+			}
+		}
+		
+		return MainMesh;
 	}
 	return GetOwner() ? GetOwner()->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
 }

@@ -11,6 +11,7 @@
 #include "Serialization/Archive.h" // Needed for serialization
 #include "FPSPlayerCharacter.generated.h"
 
+class UWidgetComponent;
 class UTurnInPlace;
 class UFPSCharacterMovementComponent;
 class UFPSInteractionComponent;
@@ -123,6 +124,9 @@ public:
 	// =========================================================================
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters")
+	FORCEINLINE USkeletalMeshComponent* GetLocalMesh() const { return LocalMesh; }
+	
+	UFUNCTION(BlueprintCallable, Category = "Getters")
 	FORCEINLINE UCameraComponent* GetCameraComponent() const { return CameraComponent; }
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters")
@@ -173,10 +177,18 @@ public:
 	virtual void PlayEquipMontage(UAnimMontage* EquipMontage) override;
 	virtual void PlayUnEquipMontage(UAnimMontage* UnEquipMontage) override;
 
+	// =========================================================================
+	//               BLUEPRINT IMPLEMENTABLE EVENTS
+	// =========================================================================
+	
+	UFUNCTION(BlueprintImplementableEvent, Category = "Character Events")
+	void OnOverheadWidgetInitialized();
+	
 protected:
 
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	
 	virtual void OnStartCrouch(float HeightAdjust, float ScaledHeightAdjust) override;
 	virtual void OnEndCrouch(float HeightAdjust, float ScaledHeightAdjust) override;
@@ -315,6 +327,13 @@ protected:
 
 private:
 	
+	/**
+	 * The Headless Full-Body Mesh. 
+	 * Only seen by the local player controlling this character. 
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Components|Mesh")
+	TObjectPtr<USkeletalMeshComponent> LocalMesh;
+	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Camera")
 	TObjectPtr<UCameraComponent> CameraComponent;
 	
@@ -326,6 +345,9 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Actor Components")
 	TObjectPtr<UFPSInteractionComponent> InteractionComponent;
+	
+	UPROPERTY(VisibleAnywhere, Category = "Components|Actor Components")
+	TObjectPtr<UWidgetComponent> OverheadWidgetComponent;
 	
 	// =========================================================================
 	//                       HELPER FUNCTIONS & VARIABLES
@@ -339,6 +361,8 @@ private:
 	bool bWantsToWalk = false;
 	
 	float DeltaSeconds;
+	
+	void InitializeOverheadWidget();
 	
 	void TryStartSprinting();
 	

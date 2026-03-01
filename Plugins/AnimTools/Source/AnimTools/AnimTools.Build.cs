@@ -26,11 +26,12 @@ public class AnimTools : ModuleRules
 			new string[]
 			{
 				"Core",
+				"PhysicsCore",              // Required for EPhysicalSurface
 				// EDITOR LIBRARIES (Safe here!)
 				"UnrealEd",
-				"AnimationModifiers",
-				"AnimationBlueprintLibrary"
-				// ... add other public dependencies that you statically link with here ...
+				"AnimationModifiers",       // Required for UAnimationModifier
+				"AnimationBlueprintLibrary",// Required for Curve manipulation
+				"AnimGraphRuntime"          // Required for FCompactPose and evaluation
 			}
 			);
 			
@@ -42,6 +43,7 @@ public class AnimTools : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
+				"Niagara",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
