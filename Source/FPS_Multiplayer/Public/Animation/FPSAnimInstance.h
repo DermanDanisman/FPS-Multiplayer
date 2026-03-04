@@ -33,16 +33,6 @@ struct FLocomotionAnimCardinalDirections
 
 #pragma region Enums
 
-UENUM(BlueprintType)
-enum class ELocomotionCardinalDirection : uint8
-{
-    LSD_Forward    UMETA(DisplayName = "Forward"),
-    LSD_Backward   UMETA(DisplayName = "Backward"),
-    LSD_Left       UMETA(DisplayName = "Left"),
-    LSD_Right      UMETA(DisplayName = "Right"),
-    
-    LSD_MAX        UMETA(Hidden)
-};
 #pragma endregion Enums
 
 UCLASS()
@@ -88,6 +78,7 @@ protected:
     UPROPERTY(Transient) bool bCachedUseSeparateBrakingFriction;
     
     UPROPERTY(Transient) FTransform DesiredHandTransformTarget;
+    UPROPERTY(Transient) FTransform HeadBoneTransform;
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Velocity Data")
     FVector WorldVelocity;
@@ -374,6 +365,7 @@ private:
     float CardinalDirectionDeadZone = 10.f;
     FRotator SmoothedControlRotation;
     FRotator SmoothedActorRotation;
+    FTransform SmoothedHandWorldTransform;
     
 #pragma region Internal Gather Methods
     // --- Update Subroutines ---
@@ -432,4 +424,10 @@ protected:
   
     UFUNCTION()
     void AnimNotify_WeaponGrab();
+    
+    void SetRootYawOffset(float InRootYawOffset);
+    
+    bool bEnableRootYawOffset = true;
+    float RootTurnYawOffset;
+    float AimYaw;
 };

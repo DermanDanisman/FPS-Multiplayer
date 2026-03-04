@@ -67,3 +67,14 @@ enum class ECombatState : uint8
 	ECS_ThrowingGrenade UMETA(DisplayName = "Throwing Grenade"),
 	ECS_SwappingWeapons UMETA(DisplayName = "Swapping Weapons")
 };
+
+UENUM(BlueprintType)
+enum class ELocomotionCardinalDirection : uint8
+{
+	LSD_Forward    UMETA(DisplayName = "Forward"),
+	LSD_Backward   UMETA(DisplayName = "Backward"),
+	LSD_Left       UMETA(DisplayName = "Left"),
+	LSD_Right      UMETA(DisplayName = "Right"),
+    
+	LSD_MAX        UMETA(Hidden)
+};

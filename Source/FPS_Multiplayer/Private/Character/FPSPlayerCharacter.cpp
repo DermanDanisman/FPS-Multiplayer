@@ -12,10 +12,8 @@
 #include "Component/FPSCharacterMovementComponent.h"
 #include "Component/FPSCombatComponent.h"
 #include "Component/FPSInteractionComponent.h"
-#include "Components/Widget.h"
 #include "Components/WidgetComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/SpringArmComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/FPSPlayerController.h"
 #include "Player/FPSPlayerState.h"
@@ -57,7 +55,8 @@ AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitial
 	// =========================================================================
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	// Attach to the Local Mesh's head so it moves with breathing/locomotion
-	CameraComponent->SetupAttachment(LocalMesh, FName("CameraSocket")); 
+	CameraComponent->SetupAttachment(GetRootComponent());
+	CameraComponent->SetRelativeLocation(FVector(0.0f, 0.0f, BaseEyeHeight));
 	CameraComponent->bUsePawnControlRotation = true;
 	CameraComponent->bEnableFirstPersonFieldOfView = true;
 	CameraComponent->bEnableFirstPersonScale = true;

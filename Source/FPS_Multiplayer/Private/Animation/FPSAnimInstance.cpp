@@ -18,17 +18,17 @@
 void UFPSAnimInstance::NativeInitializeAnimation()
 {
     Super::NativeInitializeAnimation();
-    UpdateReferences();
+    /*UpdateReferences();
 
     if (AActor* OwningActor = GetOwningActor())
     {
        WorldLocation = OwningActor->GetActorLocation();
-    }
+    }*/
 }
 
 void UFPSAnimInstance::UpdateReferences()
 {
-    if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
+    /*if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
     {
        UFPSCombatComponent* Combat = Character->GetCombatComponent();
        if (Combat)
@@ -42,18 +42,18 @@ void UFPSAnimInstance::UpdateReferences()
              OnCharacterWeaponEquipped(Combat->GetEquippedWeapon());
           }
        }
-    }
+    }*/
 }
 
 void UFPSAnimInstance::NativeUninitializeAnimation()
 {
-    if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
+    /*if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
     {
        if (UFPSCombatComponent* Combat = Character->GetCombatComponent())
        {
           Combat->OnWeaponEquipped.Remove(OnWeaponEquippedDelegateHandle);
        }
-    }
+    }*/
 
     Super::NativeUninitializeAnimation();
 }
@@ -62,7 +62,7 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
     Super::NativeUpdateAnimation(DeltaSeconds);
 
-    AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner());
+    /*AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner());
     if (!Character) return;
 
     UFPSCharacterMovementComponent* Movement = Cast<UFPSCharacterMovementComponent>(Character->GetMovementComponent());
@@ -136,6 +136,7 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
     LayerStates = Character->GetLayerStates();
     bIsLocallyControlled = Character->IsLocallyControlled();
+    HeadBoneTransform = Character->GetMesh()->GetSocketTransform(HeadBoneName, RTS_World);
 
     GatherLeftHandTransform();
     GatherProceduralAimingTarget();
@@ -148,14 +149,14 @@ void UFPSAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
        bIsStrafing,
        TurnInPlaceAnimGraphOutput,
        bCanUpdateTurnInPlace
-    );
+    );*/
 }
 
 void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 {
     Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
     
-    if (CachedMaxWalkSpeed == 0.0f && CachedGravityZ == 0.0f) return;
+    /*if (CachedMaxWalkSpeed == 0.0f && CachedGravityZ == 0.0f) return;
     
     UpdateLocationData(DeltaSeconds);
     UpdateRotationData(DeltaSeconds);
@@ -174,7 +175,7 @@ void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
        bCanUpdateTurnInPlace, 
        bIsStrafing,
        TurnInPlaceAnimGraphOutput
-    );
+    );*/
 }
 
 FTurnInPlaceAnimSet UFPSAnimInstance::GetTurnInPlaceAnimSet_Implementation() const
@@ -207,7 +208,9 @@ void UFPSAnimInstance::UpdateRotationData(float DeltaTime)
     if (bIsLocallyControlled)
     {
        SmoothedControlRotation = CachedControlRotation;
-       SmoothedActorRotation = CachedActorRotation;
+       // ADD THIS: Smooth the actor rotation locally so the spine gracefully untwists
+       // when the capsule physically snaps to the movement direction!
+       SmoothedActorRotation = FMath::RInterpTo(SmoothedActorRotation, CachedActorRotation, DeltaTime, 15.f);
     }
     else
     {
@@ -452,7 +455,7 @@ void UFPSAnimInstance::GatherProceduralAimingTarget()
 
           FTransform AdjTrans(HandToSight.GetRotation(), AdjLoc, FVector::OneVector);
           FTransform NewHandWorldTransform = AdjTrans * CameraWorldTransform;
-          FinalTransform = UKismetMathLibrary::MakeRelativeTransform(NewHandWorldTransform, HeadWorldTransform);
+          FinalTransform = NewHandWorldTransform;
        }
        
        else
@@ -508,8 +511,7 @@ void UFPSAnimInstance::GatherProceduralAimingTarget()
     else
     {
        FTransform HipTargetWorldTransform = CurrentHipFireOffset * CameraWorldTransform;
-       DesiredHandTransformTarget = UKismetMathLibrary::MakeRelativeTransform(
-          HipTargetWorldTransform, HeadWorldTransform);
+       DesiredHandTransformTarget = HipTargetWorldTransform;
     }
 }
 
@@ -523,15 +525,24 @@ void UFPSAnimInstance::UpdateProceduralAimingInterp(float DeltaTime)
        return;
     }
 
-    RightHandTargetTransform = UKismetMathLibrary::TInterpTo(
-       RightHandTargetTransform,
-       DesiredHandTransformTarget,
-       DeltaTime,
-       AimInterpSpeed
-    );
+   // 1. THE FIX: Smooth the movement in absolute WORLD SPACE.
+   // Because this target is tied to the Camera, it ignores the body entirely!
+   SmoothedHandWorldTransform = UKismetMathLibrary::TInterpTo(
+      SmoothedHandWorldTransform,
+      DesiredHandTransformTarget, // This is now a pure World Space target
+      DeltaTime,
+      AimInterpSpeed
+   );
 
-    HandLocation = RightHandTargetTransform.GetLocation();
-    HandRotation = RightHandTargetTransform.Rotator();
+   // 2. INSTANT COMPENSATION: Convert to relative space AFTER smoothing.
+   // When the Head snaps 90 degrees, MakeRelativeTransform instantly recalculates 
+   // the local offset, keeping the gun perfectly glued to the screen with zero lag.
+   FTransform HeadWorldTransform = HeadBoneTransform;
+   RightHandTargetTransform = UKismetMathLibrary::MakeRelativeTransform(SmoothedHandWorldTransform, HeadWorldTransform);
+
+   // 3. Output to the AnimGraph
+   HandLocation = RightHandTargetTransform.GetLocation();
+   HandRotation = RightHandTargetTransform.Rotator();
 }
 
 #pragma endregion Procedural Aiming
@@ -702,6 +713,15 @@ void UFPSAnimInstance::AnimNotify_WeaponGrab()
           Combat->FinishWeaponEquip();
        }
     }
+}
+
+void UFPSAnimInstance::SetRootYawOffset(float InRootYawOffset)
+{
+   if (!bEnableRootYawOffset)
+   {
+      RootTurnYawOffset = 0.0f;
+      AimYaw = 0.0f;
+   }
 }
 
 #pragma endregion
