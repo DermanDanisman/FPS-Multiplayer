@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Data/Enums/FPSCharacterTypes.h"
-#include "Implementation/TurnInPlaceMovement.h"
 #include "FPSCombatComponent.generated.h"
 
 class AFPSWeapon;
@@ -18,8 +17,8 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnCombatWeaponAmmoChangedSignature, int32,
  * Handles all combat logic: Firing, Reloading, Ammo Management, and Weapon State.
  * Acts as the "Brain" for the equipped weapon.
  */
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
-class FPS_MULTIPLAYER_API UFPSCombatComponent : public UTurnInPlaceMovement
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), Blueprintable)
+class FPS_MULTIPLAYER_API UFPSCombatComponent : public UActorComponent
 {
     GENERATED_BODY()
     

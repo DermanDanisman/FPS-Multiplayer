@@ -5,7 +5,6 @@
 
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "TurnInPlace.h"
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Animation/FPSAnimInstance.h"
 #include "Camera/CameraComponent.h"
@@ -14,13 +13,14 @@
 #include "Component/FPSInteractionComponent.h"
 #include "Components/WidgetComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Interface/FPSAnimInterface.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/FPSPlayerController.h"
 #include "Player/FPSPlayerState.h"
 #include "UI/HUD/FPSHUD.h"
 #include "UI/Widget/FPSPlayerInfoWidget.h"
 
-AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitializer)
+AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitializer) 
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UFPSCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -29,34 +29,16 @@ AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitial
 	SetNetUpdateFrequency(66.f);
 	SetMinNetUpdateFrequency(33.f);
 	
-	// =========================================================================
-	// 1. THE PROXY MESH (Inherited)
-	// =========================================================================
-	// Other players see this. You do NOT see this.
-	GetMesh()->bOwnerNoSee = true;
+	// Ensure the mesh animates AFTER the character has physically moved this frame
+	GetMesh()->AddTickPrerequisiteComponent(GetCharacterMovement());
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-	
-	// =========================================================================
-	// 2. THE LOCAL MESH
-	// =========================================================================
-	// Only you see this. We attach it to the capsule so it moves with you.
-	LocalMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("LocalMesh"));
-	LocalMesh->SetupAttachment(GetRootComponent());
-	LocalMesh->bOnlyOwnerSee = true;
-	
-	// CRITICAL: Turn off shadows for the local mesh! 
-	// The Proxy mesh casts your shadow. If both cast shadows, you get ghosting.
-	LocalMesh->CastShadow = false;
-	LocalMesh->bCastDynamicShadow = false;
-	LocalMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 
 	// =========================================================================
-	// 3. THE CAMERA
+	// THE CAMERA
 	// =========================================================================
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	// Attach to the Local Mesh's head so it moves with breathing/locomotion
-	CameraComponent->SetupAttachment(GetRootComponent());
-	CameraComponent->SetRelativeLocation(FVector(0.0f, 0.0f, BaseEyeHeight));
+	CameraComponent->SetupAttachment(GetMesh(), FName("CameraSocket"));
 	CameraComponent->bUsePawnControlRotation = true;
 	CameraComponent->bEnableFirstPersonFieldOfView = true;
 	CameraComponent->bEnableFirstPersonScale = true;
@@ -71,10 +53,8 @@ AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitial
 	OverheadWidgetComponent->SetOwnerNoSee(true);
 	OverheadWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
 	OverheadWidgetComponent->SetDrawAtDesiredSize(true);
-	
-	TurnInPlace->SetIsReplicated(true);
 
-	// 2. MOVEMENT SETTINGS
+	// MOVEMENT SETTINGS
 	bUseControllerRotationYaw = true; 
     FPSMovementComponent = CastChecked<UFPSCharacterMovementComponent>(ThisClass::GetMovementComponent());
 	FPSMovementComponent->SetIsReplicated(true);
@@ -204,45 +184,13 @@ void AFPSPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void AFPSPlayerCharacter::BeginPlay()
 {
-	// =========================================================
-	// 1. SETUP THE MESH HIERARCHY FIRST
-	// =========================================================
-	// We MUST do this before Super::BeginPlay() so that the TurnInPlace component 
-	// reads the LeaderPose and attaches to the LocalMesh instead of the Proxy.
-	if (IsLocallyControlled())
-	{
-		if (LocalMesh)
-		{
-			LocalMesh->HideBoneByName(FName("head"), PBO_None);
-			GetMesh()->SetLeaderPoseComponent(LocalMesh);
-		}
-	}
-	else
-	{
-		if (LocalMesh)
-		{
-			LocalMesh->SetVisibility(false);
-			LocalMesh->bAutoActivate = false;
-			LocalMesh->SetComponentTickEnabled(false);
-		}
-	}
-	
-	// =========================================================
-	// 2. INITIALIZE COMPONENTS
-	// =========================================================
-	// TurnInPlace will now execute its BeginPlay, see the Leader Pose, 
-	// and perfectly bind to the LocalMesh!
 	Super::BeginPlay();
 
 	// =========================================================
-	// 3. LINK ANIMATION LAYERS & INPUT
+	// LINK ANIMATION LAYERS & INPUT
 	// =========================================================
 	if (IsLocallyControlled())
 	{
-		if (UnarmedAnimLayerClass && LocalMesh)
-		{
-			LocalMesh->LinkAnimClassLayers(UnarmedAnimLayerClass);
-		}
 		
 		if (APlayerController* PC = GetController<APlayerController>())
 		{
@@ -251,16 +199,20 @@ void AFPSPlayerCharacter::BeginPlay()
 				if (PlayerCharacterMappingContext) Subsystem->AddMappingContext(PlayerCharacterMappingContext, 0);
 			}
 		}
-	}
-	else
-	{
-		if (UnarmedAnimLayerClass && GetMesh())
+		
+		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 		{
-			GetMesh()->LinkAnimClassLayers(UnarmedAnimLayerClass);
+			if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInstance))
+			{
+				FPSAnimInterface->SetFPSMode(CombatComponent && CombatComponent->GetEquippedWeapon());
+			}
 		}
 	}
 
-	UTurnInPlaceStatics::SetCharacterMovementType(this, MovementType);
+	if (DefaultAnimLayerClass && GetMesh())
+	{
+		GetMesh()->LinkAnimClassLayers(DefaultAnimLayerClass);
+	}
 	
 	UpdateGait();
 }
@@ -331,25 +283,6 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		// Interaction (ex: F Key)
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::OnInteractedPressed);
 	}
-}
-
-void AFPSPlayerCharacter::FaceRotation(FRotator NewControlRotation, float DeltaTime)
-{
-	if (!Controller)
-		return;
-
-	FRotator RotationToUse;
-
-	if (IsLocallyControlled())
-	{
-		RotationToUse = GetControlRotation();
-	}
-	else
-	{
-		RotationToUse = GetReplicatedControlRotation();
-	}
-
-	Super::FaceRotation(RotationToUse, DeltaTime);
 }
 
 void AFPSPlayerCharacter::Move(const FInputActionValue& Value)
@@ -503,6 +436,19 @@ void AFPSPlayerCharacter::SetAimState(EAimState NewState)
 	LayerStates.AimState = NewState;
 	OnAimStateChanged.Broadcast(LayerStates.AimState);
 	
+	if (UAnimInstance* AnimInst = GetMesh()->GetAnimInstance())
+	{
+		// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+		if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInst))
+		{
+			// Now you can call the functions natively like any normal C++ object!
+			bool bIsADS = (NewState == EAimState::EAS_ADS);
+			FPSAnimInterface->SetUnarmed(false);
+			FPSAnimInterface->SetADS(bIsADS);
+
+		}
+	}
+	
 	// 2. Replication: Tell the Server
 	if (!HasAuthority())
 	{
@@ -613,8 +559,7 @@ void AFPSPlayerCharacter::SetCurrentWeapon(AFPSWeapon* WeaponToEquip)
 
 void AFPSPlayerCharacter::PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMontage* AimedFireMontage)
 {
-	USkeletalMeshComponent* TargetMesh = IsLocallyControlled() ? LocalMesh.Get() : GetMesh();
-	UAnimInstance* AnimInstance = TargetMesh->GetAnimInstance();
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 	if (!AnimInstance) return;
 
 	// DECISION LOGIC:
@@ -631,8 +576,7 @@ void AFPSPlayerCharacter::PlayFireMontage(UAnimMontage* HipFireMontage, UAnimMon
 
 void AFPSPlayerCharacter::PlayEquipMontage(UAnimMontage* EquipMontage)
 {
-	USkeletalMeshComponent* TargetMesh = IsLocallyControlled() ? LocalMesh.Get() : GetMesh();
-	UAnimInstance* AnimInstance = TargetMesh->GetAnimInstance();
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 	if (!AnimInstance) return;
 	
 	if (CombatComponent->GetEquippedWeapon() && EquipMontage)
@@ -643,8 +587,7 @@ void AFPSPlayerCharacter::PlayEquipMontage(UAnimMontage* EquipMontage)
 
 void AFPSPlayerCharacter::PlayUnEquipMontage(UAnimMontage* UnEquipMontage)
 {
-	USkeletalMeshComponent* TargetMesh = IsLocallyControlled() ? LocalMesh.Get() : GetMesh();
-	UAnimInstance* AnimInstance = TargetMesh->GetAnimInstance();
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 	if (!AnimInstance) return;
 	
 	if (CombatComponent->GetEquippedWeapon() && UnEquipMontage)

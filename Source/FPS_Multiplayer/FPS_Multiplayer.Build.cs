@@ -21,7 +21,6 @@ public class FPS_Multiplayer : ModuleRules
 			"Slate",
 			"SlateCore", 
 			"OnlineMultiplayerSessionsPlugin",
-			"ActorTurnInPlace",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

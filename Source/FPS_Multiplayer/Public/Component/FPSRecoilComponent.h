@@ -8,7 +8,7 @@
 
 class UFPSWeaponData;
 
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), Blueprintable)
 class FPS_MULTIPLAYER_API UFPSRecoilComponent : public UActorComponent
 {
 	GENERATED_BODY()

@@ -47,8 +47,11 @@ public:
 	//
 	// --- Public Helper Functions ---
 	//
-	UFUNCTION(BlueprintPure, Category = "Anim Instance Base", meta=(BlueprintThreadSafe))
-	bool IsMovingPerpendicularToInitialPivot();
+	/*UFUNCTION(BlueprintPure, Category = "Anim Instance Base", meta=(BlueprintThreadSafe))
+	bool IsMovingPerpendicularToInitialPivot();*/
+	
+	UFUNCTION(meta=(BlueprintThreadSafe))
+	FORCEINLINE void SetLastPivotTime(float NewPivotTime) { LastPivotTime = NewPivotTime; }
 	
 	//
 	// --- Game Thread Gathering Data ---
@@ -247,6 +250,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Locomotion SM Data")
 	ELocomotionCardinalDirection CardinalDirectionFromAcceleration;
 	
+	// The new boolean for your AnimGraph Transition Rule
+	UPROPERTY(BlueprintReadOnly, Category = "Locomotion SM Data")
+	bool bShouldCancelPivot;
+	
 	//
 	// --- Blend Weight Data ---
 	//
@@ -259,7 +266,7 @@ public:
 	//
 	
 	UPROPERTY(BlueprintReadWrite, Category = "Aiming")
-	float AimPitch;
+	float AimPitch = -2.788732f;
 	
 	UPROPERTY(BlueprintReadWrite, Category = "Aiming")
 	float AimYaw;
@@ -270,6 +277,10 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
 	float CardianalDirectionDeadZone = 10.f;
+	
+	// The tolerance threshold (0.15 seconds is usually perfect for 66hz tick rates)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
+	float PivotCancelTolerance = 0.15f;
 	
 	//
 	// --- Linked Layered Data ---
@@ -331,8 +342,8 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "FPS")
 	bool bIsADSUpper;
 	
-	UPROPERTY(BlueprintReadOnly, Category = "FPS")
-	float FPSPelvisWeight;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "FPS")
+	float FPSPelvisWeight = 0.2f;
 	
 	UPROPERTY(BlueprintReadOnly, Category = "FPS")
 	float ApplyPelvisWeight;
@@ -396,6 +407,10 @@ public:
 	
 private:
 	
+	// The hidden timer (Transient because we don't need to save this)
+	UPROPERTY(Transient)
+	float PivotCancelTimer;
+	
 	//
 	// --- Thread Safe Functions ---
 	//
@@ -410,6 +425,7 @@ private:
 	void UpdateRootYawOffset(float DeltaTime);
 	void UpdateAimingData();
 	void UpdateJumpFallData();
+	void UpdatePivotState(float DeltaTime);
 	void UpdateProceduralAlpha();
 	void UpdateSwayData(float DeltaTime);
 	void UpdateLagPosition(float DeltaTime);

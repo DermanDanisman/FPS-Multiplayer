@@ -25,28 +25,6 @@ void UFPSCharacterMovementComponent::InitializeComponent()
 	Super::InitializeComponent();
 }
 
-void UFPSCharacterMovementComponent::SimulateMovement(float DeltaTime)
-{
-	if (bHasReplicatedAcceleration)
-	{
-		// 1. Preserve the value we received from the Server (The Player's actual Input)
-		const FVector OriginalAcceleration = Acceleration;
-
-		// 2. Run the Engine's Logic
-		// WARNING: Internally, Super::SimulateMovement calls 'UpdateProxyAcceleration()'.
-		// 'UpdateProxyAcceleration' overwrites 'Acceleration' based on Velocity!
-		Super::SimulateMovement(DeltaTime);
-
-		// 3. Restore the Server's value
-		// We overwrite the Engine's "Guess" with the "Fact" we received from the Server.
-		Acceleration = OriginalAcceleration;
-	}
-	else
-	{
-		Super::SimulateMovement(DeltaTime);
-	}
-}
-
 const FCharacterGroundInfo& UFPSCharacterMovementComponent::GetGroundInfo()
 {
 	if (!CharacterOwner || (GFrameCounter == CachedGroundInfo.LastUpdateFrame))

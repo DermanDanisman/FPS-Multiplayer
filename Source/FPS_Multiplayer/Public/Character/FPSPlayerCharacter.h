@@ -6,7 +6,7 @@
 #include "InputActionValue.h"
 #include "Data/Enums/FPSCharacterTypes.h"
 #include "Data/Structs/FPSCharacterDataContainer.h"
-#include "Implementation/TurnInPlaceCharacter.h"
+#include "GameFramework/Character.h"
 #include "Interface/FPSWeaponHandlerInterface.h"
 #include "Serialization/Archive.h" // Needed for serialization
 #include "FPSPlayerCharacter.generated.h"
@@ -97,19 +97,18 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnOverlayStateChanged, EOverlayState);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnAimStateChanged, EAimState);
 
 UCLASS()
-class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ATurnInPlaceCharacter, public IFPSWeaponHandlerInterface
+class FPS_MULTIPLAYER_API AFPSPlayerCharacter : public ACharacter, public IFPSWeaponHandlerInterface
 {
 	GENERATED_BODY()
 
 public:
-	AFPSPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+	AFPSPlayerCharacter(const FObjectInitializer& ObjectInitializer);
     
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-	virtual void FaceRotation(FRotator NewControlRotation, float DeltaTime) override;
 	
 	// =========================================================================
 	//                        DELEGATES
@@ -124,9 +123,6 @@ public:
 	// =========================================================================
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters")
-	FORCEINLINE USkeletalMeshComponent* GetLocalMesh() const { return LocalMesh; }
-	
-	UFUNCTION(BlueprintCallable, Category = "Getters")
 	FORCEINLINE UCameraComponent* GetCameraComponent() const { return CameraComponent; }
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters")
@@ -136,7 +132,7 @@ public:
 	FORCEINLINE UFPSCombatComponent* GetCombatComponent() const { return CombatComponent; }
 	
 	/** Getter so your Combat Component can revert to this when dropping weapons */
-	TSubclassOf<UAnimInstance> GetUnarmedAnimLayerClass() const { return UnarmedAnimLayerClass; }
+	TSubclassOf<UAnimInstance> GetUnarmedAnimLayerClass() const { return DefaultAnimLayerClass; }
 	
 	UFUNCTION(BlueprintCallable, Category = "Getters|Character States")
 	FORCEINLINE FCharacterLayerStates GetLayerStates() const { return LayerStates; }
@@ -322,17 +318,10 @@ protected:
 	/** * The default animation layer class used when the player spawns or drops all weapons.
 	 * (e.g., ABP_Unarmed_Layers) 
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Animation Layers")
-	TSubclassOf<UAnimInstance> UnarmedAnimLayerClass;
+	UPROPERTY(EditDefaultsOnly, Category = "Animation")
+	TSubclassOf<UAnimInstance> DefaultAnimLayerClass;
 
 private:
-	
-	/**
-	 * The Headless Full-Body Mesh. 
-	 * Only seen by the local player controlling this character. 
-	 */
-	UPROPERTY(VisibleAnywhere, Category = "Components|Mesh")
-	TObjectPtr<USkeletalMeshComponent> LocalMesh;
 	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Camera")
 	TObjectPtr<UCameraComponent> CameraComponent;
@@ -352,9 +341,6 @@ private:
 	// =========================================================================
 	//                       HELPER FUNCTIONS & VARIABLES
 	// =========================================================================
-	
-	UPROPERTY(EditAnywhere, Category = "Character States")
-	ECharacterMovementType MovementType = ECharacterMovementType::StrafeDirect;
 	
 	bool bWantsToSprint = false;
 	

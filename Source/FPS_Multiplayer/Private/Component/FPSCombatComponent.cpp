@@ -7,6 +7,7 @@
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCharacterMovementComponent.h"
 #include "GameFramework/Character.h"
+#include "Interface/FPSAnimInterface.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 
@@ -329,7 +330,7 @@ void UFPSCombatComponent::Multicast_Reload_Implementation()
 		if (EquippedWeapon && EquippedWeapon->GetReloadMontage())
 		{
 			// Play on the correct mesh!
-			USkeletalMeshComponent* TargetMesh = OwnerCharacter->IsLocallyControlled() ? OwnerCharacter->GetLocalMesh() : OwnerCharacter->GetMesh();
+			USkeletalMeshComponent* TargetMesh = OwnerCharacter->GetMesh();
 			TargetMesh->GetAnimInstance()->Montage_Play(EquippedWeapon->GetReloadMontage());
 		}
 	}
@@ -377,7 +378,7 @@ void UFPSCombatComponent::FinishWeaponEquip()
 	if (!OwnerCharacter) return;
 
 	// 1. Target the correct mesh
-	USkeletalMeshComponent* TargetMesh = OwnerCharacter->IsLocallyControlled() ? OwnerCharacter->GetLocalMesh() : OwnerCharacter->GetMesh();
+	USkeletalMeshComponent* TargetMesh = OwnerCharacter->GetMesh();
 
 	// 2. Attach the Visuals
 	EquippedWeapon->AttachToComponent(
@@ -388,6 +389,18 @@ void UFPSCombatComponent::FinishWeaponEquip()
     
 	// 3. Link the Animation Layers to the targeted mesh
 	TargetMesh->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
+	
+	// 4. The Interface Bridge!
+	if (UAnimInstance* AnimInst = TargetMesh->GetAnimInstance())
+	{
+		// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+		if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInst))
+		{
+			// Now you can call the functions natively like any normal C++ object!
+			FPSAnimInterface->SetUnarmed(false);
+			FPSAnimInterface->SetFPSMode(OwnerCharacter->IsLocallyControlled());
+		}
+	}
     
 	// 4. Fire the Broadcasts
 	MonitorWeapon(EquippedWeapon);

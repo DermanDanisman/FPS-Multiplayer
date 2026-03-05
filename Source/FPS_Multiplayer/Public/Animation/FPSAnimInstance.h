@@ -3,8 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "TurnInPlaceAnimInterface.h"
-#include "TurnInPlaceStatics.h"
+/*#include "TurnInPlaceAnimInterface.h"
+#include "TurnInPlaceStatics.h"*/
 #include "Animation/AnimInstance.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Data/Structs/FPSCharacterDataContainer.h"
@@ -36,7 +36,7 @@ struct FLocomotionAnimCardinalDirections
 #pragma endregion Enums
 
 UCLASS()
-class FPS_MULTIPLAYER_API UFPSAnimInstance : public UAnimInstance, public ITurnInPlaceAnimInterface
+class FPS_MULTIPLAYER_API UFPSAnimInstance : public UAnimInstance //public ITurnInPlaceAnimInterface
 {
     GENERATED_BODY()
     
@@ -47,11 +47,10 @@ public:
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
     virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
     
-    virtual FTurnInPlaceAnimSet GetTurnInPlaceAnimSet_Implementation() const override;
+    //virtual void GetTurnInPlaceAnimSet_Implementation() const;
     
-    virtual FTurnInPlaceCurveValues GetTurnInPlaceCurveValues_Implementation() const override
+    virtual void GetTurnInPlaceCurveValues_Implementation() const
     {
-        return TurnInPlaceCurveValues;
     };
     
 protected:
@@ -173,7 +172,7 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Essential Data")
     FVector InputVector;
     
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
+    /*UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
     FTurnInPlaceAnimSet TurnInPlaceAnimSet;
     
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn In Place")
@@ -189,7 +188,7 @@ protected:
     FTurnInPlaceGraphNodeData TurnInPlaceGraphNodeData;
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
-    FTurnInPlaceCurveValues TurnInPlaceCurveValues;
+    FTurnInPlaceCurveValues TurnInPlaceCurveValues;*/
     
     UPROPERTY(Transient, BlueprintReadOnly, Category = "Turn In Place")
     bool bIsStrafing = false;
@@ -393,7 +392,7 @@ private:
 
 public:
     
-    UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
+    /*UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
     FORCEINLINE FTurnInPlaceAnimSet GetTurnAnimSet() { return TurnInPlaceAnimGraphData.AnimSet; }
     
     UFUNCTION(BlueprintPure, Category="Turn In Place", meta=(BlueprintThreadSafe))
@@ -412,7 +411,7 @@ public:
     FORCEINLINE void SetIsTurningRightNodeData(bool NewIsTurningRight) { TurnInPlaceGraphNodeData.bIsTurningRight = NewIsTurningRight; }
     
     UFUNCTION(BlueprintCallable, Category="Turn In Place", meta=(BlueprintThreadSafe))
-    FORCEINLINE void SetAnimStateTimeNodeData(float NewAnimStateTime) { TurnInPlaceGraphNodeData.AnimStateTime = NewAnimStateTime; }
+    FORCEINLINE void SetAnimStateTimeNodeData(float NewAnimStateTime) { TurnInPlaceGraphNodeData.AnimStateTime = NewAnimStateTime; }*/
     
     UFUNCTION(BlueprintPure, Category="Distance Matching", meta=(BlueprintThreadSafe))
     float GetPredictedStopDistance() const;

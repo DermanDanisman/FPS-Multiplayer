@@ -9,7 +9,7 @@
 // Forward declaration
 class IFPSInteractableInterface;
 
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), Blueprintable)
 class FPS_MULTIPLAYER_API UFPSInteractionComponent : public UActorComponent
 {
 	GENERATED_BODY()

@@ -47,34 +47,21 @@ public:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 	
-	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "ThreadSafe Getters", meta=(BlueprintThreadSafe))
-	virtual UFPSAnimInstanceBase* GetFPSAnimInstance() const;
+	/*UFUNCTION(BlueprintCallable, BlueprintPure, Category = "ThreadSafe Getters", meta=(BlueprintThreadSafe))
+	virtual UFPSAnimInstanceBase* GetFPSAnimInstance() const;*/
 	
 	UFUNCTION(BlueprintCallable, Category = "Animation|Node Functions", meta = (BlueprintThreadSafe))
 	void SetLeftHandPoseOverrideWeight(const FAnimUpdateContext& Context, const FAnimNodeReference& Node);
 	
+	// A proxy function so the AnimGraph can safely set the pivot time on the Base Instance
+	UFUNCTION(BlueprintCallable, Category = "Turn In Place", meta=(BlueprintThreadSafe))
+	void SetBaseLastPivotTime(float InTime);
+	
 protected:
 	
-	//
-	// --- Game Thread Gathering Data ---
-	//
-	
-	UPROPERTY(Transient) FVector CachedLastUpdateVelocity;
-	
-	UPROPERTY(Transient) float CachedRootYawOffset;
-	UPROPERTY(Transient) float CachedTimeSinceFiredWeapon;
-	UPROPERTY(Transient) float CachedBrakingFriction;
-	UPROPERTY(Transient) float CachedGroundFriction;
-	UPROPERTY(Transient) float CachedBrakingFrictionFactor;
-	UPROPERTY(Transient) float CachedBrakingDecelerationWalking;
-	
-	UPROPERTY(Transient) bool bCachedHasAcceleration;
-	UPROPERTY(Transient) bool bCachedUseSeparateBrakingFriction;
-	UPROPERTY(Transient) bool bCachedIsCrouching;
-	UPROPERTY(Transient) bool bCachedGameplayTagIsADS;
-	UPROPERTY(Transient) bool bCachedIsOnGround;
-	UPROPERTY(Transient) bool bCachedIsFalling;
-	UPROPERTY(Transient) bool bCachedIsJumping;
+	// Add a variable to cache the parent instance
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Anim Instances")
+	TObjectPtr<UFPSAnimInstanceBase> BaseAnimInstance;
 	
 	//
 	// --- Thread-Safe Data ---
@@ -90,112 +77,112 @@ protected:
 	// --- Data ---
 	//
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TObjectPtr<UAnimSequence> IdleADS;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TObjectPtr<UAnimSequence> IdleHipFire;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TArray<UAnimSequence*> IdleBreaks;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TObjectPtr<UAnimSequence> CrouchIdle;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TObjectPtr<UAnimSequence> CrouchIdleEntry;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TObjectPtr<UAnimSequence> CrouchIdleExit;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Idle")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Idle")
 	TObjectPtr<UAnimSequence> LeftHandPose_Override;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Starts")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Starts")
 	FAnimCardinalDirections JogStartCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Starts")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Starts")
 	FAnimCardinalDirections ADSStartCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Starts")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Starts")
 	FAnimCardinalDirections CrouchStartCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Stops")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Stops")
 	FAnimCardinalDirections JogStopCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Stops")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Stops")
 	FAnimCardinalDirections ADSStopCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Stops")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Stops")
 	FAnimCardinalDirections CrouchStopCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Pivots")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Pivots")
 	FAnimCardinalDirections JogPivotCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Pivots")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Pivots")
 	FAnimCardinalDirections ADSPivotCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Pivots")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Pivots")
 	FAnimCardinalDirections CrouchPivotCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Turn In Place")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Turn In Place")
 	TObjectPtr<UAnimSequence> TurnInPlaceLeft;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Turn In Place")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Turn In Place")
 	TObjectPtr<UAnimSequence> TurnInPlaceRight;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Turn In Place")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Turn In Place")
 	TObjectPtr<UAnimSequence> CrouchTurnInPlaceLeft;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Turn In Place")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Turn In Place")
 	TObjectPtr<UAnimSequence> CrouchTurnInPlaceRight;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jog")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jog")
 	FAnimCardinalDirections JogCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	TObjectPtr<UAnimSequence> JumpStart;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	TObjectPtr<UAnimSequence> JumpApex;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	TObjectPtr<UAnimSequence> JumpFallLand;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	TObjectPtr<UAnimSequence> JumpRecoveryAdditive;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	TObjectPtr<UAnimSequence> JumpStartLoop;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	TObjectPtr<UAnimSequence> JumpFallLoop;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Jump")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Jump")
 	FName JumpDistanceCurveName = FName("GroundDistance");
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Walk")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Walk")
 	FAnimCardinalDirections WalkCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Walk")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Walk")
 	FAnimCardinalDirections CrouchWalkCardinals;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Aiming | FPS")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Aiming | FPS")
 	TObjectPtr<UAnimSequence> AimFPSPelvisPose;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Aiming | FPS")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Aiming | FPS")
 	TObjectPtr<UAnimSequence> AimFPSPelvisPoseCrouch;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Aiming")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Aiming")
 	TObjectPtr<UAnimSequence> AimHipFirePose;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Aiming")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Aiming")
 	TObjectPtr<UAnimSequence> AimHipFirePoseCrouch;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Aiming")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Aiming")
 	TObjectPtr<UAimOffsetBlendSpace> IdleAimOffset;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set | Aiming")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Anim Set Aiming")
 	TObjectPtr<UAimOffsetBlendSpace> RelaxedAimOffset;
 	
 	UPROPERTY(BlueprintReadWrite, Category = "Blend Weight Data")

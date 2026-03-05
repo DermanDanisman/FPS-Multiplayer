@@ -34,17 +34,19 @@ void UFPSAnimInstanceBase::NativeUpdateAnimation(float DeltaSeconds)
 	CachedActorRightVector = Character->GetActorRightVector();
 	CachedActorUpVector = Character->GetActorUpVector();
     CachedVelocity = Character->GetVelocity();
+	CachedLastUpdateVelocity = Movement->GetLastUpdateVelocity();
     CachedAcceleration = Movement->GetCurrentAcceleration();
-    if (Character->IsLocallyControlled())
-    {
-       CachedControlRotation = Character->GetControlRotation();
-    }
-    else
-    {
-       CachedControlRotation = Character->GetReplicatedControlRotation();
-    }
-    CachedLastUpdateVelocity = Movement->GetLastUpdateVelocity();
-    
+	if (Character->IsLocallyControlled())
+	{
+		CachedControlRotation = Character->GetControlRotation();
+	}
+	else
+	{
+		// Smoothly interpolate the snappy network packets!
+		FRotator TargetRot = Character->GetReplicatedControlRotation();
+		CachedControlRotation = FMath::RInterpTo(CachedControlRotation, TargetRot, DeltaSeconds, 15.0f);
+	}
+	
     CachedGravityZ = Movement->GetGravityZ();
 	CachedJumpZVelocity = Movement->JumpZVelocity;
     CachedMaxWalkSpeed = Movement->MaxWalkSpeed;
@@ -72,16 +74,22 @@ void UFPSAnimInstanceBase::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	UpdateRotationData(DeltaSeconds);
 	UpdateVelocityData();
 	UpdateAccelerationData();
+	UpdatePivotState(DeltaSeconds);
 	UpdateWallDetectionHeuristic();
 	UpdateCharacterStateData(DeltaSeconds);
 	UpdateBlendWeightData(DeltaSeconds);
 	UpdateRootYawOffset(DeltaSeconds);
 	UpdateAimingData();
 	UpdateJumpFallData();
-	UpdateProceduralAlpha();
-	UpdateSwayData(DeltaSeconds);
-	UpdateLagPosition(DeltaSeconds);
-	UpdatePelvisWeight();
+	
+	// Only run procedural 1st-person camera math if we are the local player looking through the camera!
+	if (bIsLocallyControlled)
+	{
+		UpdateProceduralAlpha();
+		UpdatePelvisWeight();
+		UpdateSwayData(DeltaSeconds);
+		UpdateLagPosition(DeltaSeconds);
+	}
 	
 	// Evaluate the function here and store it in the simple boolean variable!
 	bEnableControlRig = ShouldEnableControlRig();
@@ -137,7 +145,7 @@ void UFPSAnimInstanceBase::UpdateLocationData(float DeltaTime)
 
 void UFPSAnimInstanceBase::UpdateRotationData(float DeltaTime)
 {
-	YawDeltaSinceLastUpdate = CachedActorRotation.Yaw - WorldRotation.Yaw;
+	YawDeltaSinceLastUpdate = UKismetMathLibrary::NormalizedDeltaRotator(CachedActorRotation, WorldRotation).Yaw;
 	YawDeltaSpeed = UKismetMathLibrary::SafeDivide(YawDeltaSinceLastUpdate, DeltaTime);
 	
 	WorldRotation = CachedActorRotation;
@@ -145,11 +153,11 @@ void UFPSAnimInstanceBase::UpdateRotationData(float DeltaTime)
 	float MultipliedYawDeltaSpeed;
 	if (bIsCrouching || bGameplayTagIsADS)
 	{
-		MultipliedYawDeltaSpeed = YawDeltaSpeed * 0.025f;
+		MultipliedYawDeltaSpeed = 0.025f;
 	}
 	else
 	{
-		MultipliedYawDeltaSpeed = YawDeltaSpeed * 0.0375f;
+		MultipliedYawDeltaSpeed = 0.0375f;
 	}
 	
 	AdditiveLeanAngle = YawDeltaSpeed * MultipliedYawDeltaSpeed;
@@ -190,11 +198,11 @@ void UFPSAnimInstanceBase::UpdateAccelerationData()
 {
 	FVector WorldAcceleration2D = FVector(CachedAcceleration.X, CachedAcceleration.Y, 0.f);
 	LocalAcceleration2D = UKismetMathLibrary::LessLess_VectorRotator(WorldAcceleration2D, WorldRotation);
-	bHasAcceleration = !UKismetMathLibrary::NearlyEqual_FloatFloat(LocalAcceleration2D.SizeSquared2D(), 0.0f);
+	bHasAcceleration = !UKismetMathLibrary::NearlyEqual_FloatFloat(LocalAcceleration2D.SizeSquared2D(), 0.0f, 0.000001f);
 	
-	FVector NormalizedWorldAcceleration2D = UKismetMathLibrary::Normal(WorldAcceleration2D);
-	FVector VectorLerp = UKismetMathLibrary::VLerp(PivotDirection2D, NormalizedWorldAcceleration2D, 0.0001f);
-	PivotDirection2D = UKismetMathLibrary::Normal(VectorLerp);
+	FVector NormalizedWorldAcceleration2D = UKismetMathLibrary::Normal(WorldAcceleration2D, 0.0001f);
+	FVector VectorLerp = UKismetMathLibrary::VLerp(PivotDirection2D, NormalizedWorldAcceleration2D, 0.5f);
+	PivotDirection2D = UKismetMathLibrary::Normal(VectorLerp, 0.0001f);
 	
 	CardinalDirectionFromAcceleration = GetOppositeCardinalDirection(SelectCardinalDirectionFromAngle(
 		UKismetAnimationLibrary::CalculateDirection(PivotDirection2D, WorldRotation), 
@@ -316,6 +324,30 @@ void UFPSAnimInstanceBase::UpdateJumpFallData()
 	}
 }
 
+void UFPSAnimInstanceBase::UpdatePivotState(float DeltaTime)
+{
+	// 1. Your original excellent logic to check the raw direction
+	bool bPivotalInitialDirectionFB = PivotInitialDirection == ELocomotionCardinalDirection::LSD_Forward || PivotInitialDirection == ELocomotionCardinalDirection::LSD_Backward;
+	bool bLocalVelocityDirectionFB = LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Forward || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Backward;
+	bool bPivotInitialDirectionLR = PivotInitialDirection == ELocomotionCardinalDirection::LSD_Left || PivotInitialDirection == ELocomotionCardinalDirection::LSD_Right;
+	bool bLocalVelocityDirectionLR = LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Left || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Right;
+    
+	bool bIsRawPerpendicular = (bPivotalInitialDirectionFB && !bLocalVelocityDirectionFB) || (bPivotInitialDirectionLR && !bLocalVelocityDirectionLR);
+
+	// 2. The Grace Period Timer
+	if (bIsRawPerpendicular)
+	{
+		PivotCancelTimer += DeltaTime; // Network might be stuttering, start the clock!
+	}
+	else
+	{
+		PivotCancelTimer = 0.0f; // Network stabilized and direction is correct, reset!
+	}
+
+	// 3. The Final Verdict
+	bShouldCancelPivot = PivotCancelTimer >= PivotCancelTolerance;
+}
+
 void UFPSAnimInstanceBase::UpdateProceduralAlpha()
 {
 	if (bIsADSUpper)
@@ -357,7 +389,7 @@ void UFPSAnimInstanceBase::UpdateSwayData(float DeltaTime)
 	float CameraClampY = UKismetMathLibrary::Clamp(DeltaCameraRotator.Pitch, -5.0f, 5.0f) * -1.f;
 	float CameraClampZ = UKismetMathLibrary::Clamp(DeltaCameraRotator.Yaw, -5.0f, 5.0f);
 	FRotator FinalCameraRotator = FRotator(0.0f, CameraClampZ * SwayAlpha, CameraClampY * SwayAlpha);
-	CameraRotationRate = UKismetMathLibrary::RInterpTo(CameraRotationRate, FinalCameraRotator, DeltaTime, (1.0f / DeltaTime) / 24.f);
+	CameraRotationRate = UKismetMathLibrary::RInterpTo(CameraRotationRate, FinalCameraRotator, DeltaTime, 5.0f /*(1.0f / DeltaTime) / 24.f*/);
 	
 	CameraRotationOffset = FVector(
 		UKismetMathLibrary::Lerp(-10.f, 10.f, UKismetMathLibrary::NormalizeToRange(CameraRotationRate.Roll, -5.0f, 5.0f)) * 0.1f, 
@@ -374,21 +406,21 @@ void UFPSAnimInstanceBase::UpdateLagPosition(float DeltaTime)
 	float VelocityDotRightVector = UKismetMathLibrary::Dot_VectorVector(WorldVelocity, CachedActorRightVector);
 	float VelocityDotUpVector = UKismetMathLibrary::Dot_VectorVector(WorldVelocity, CachedActorUpVector);
 	
-	float Divide_1 = VelocityDotForwardVector / CachedMaxWalkSpeed * -1.0f;
-	float Divide_2 = VelocityDotRightVector / CachedMaxWalkSpeed;
-	float Divide_3 = VelocityDotUpVector / CachedJumpZVelocity * -1.0f;
+	float Divide_1 = UKismetMathLibrary::SafeDivide(VelocityDotForwardVector, CachedMaxWalkSpeed) * -1.0f;
+	float Divide_2 = UKismetMathLibrary::SafeDivide(VelocityDotRightVector, CachedMaxWalkSpeed);
+	float Divide_3 = UKismetMathLibrary::SafeDivide(VelocityDotUpVector, CachedJumpZVelocity) * -1.0f;		
 	
 	FVector TempLagPosition = FVector(Divide_2 * 0.3f, Divide_1 * 0.4f, Divide_3);
 	FVector ClampedTempLagPosition = UKismetMathLibrary::ClampVectorSize(TempLagPosition * 2.0f, 0.0f, 4.0f);
 	
-	LocationLagPosition = UKismetMathLibrary::VInterpTo(LocationLagPosition, ClampedTempLagPosition, DeltaTime, (1.0f / DeltaTime) / 6.0f);
+	LocationLagPosition = UKismetMathLibrary::VInterpTo(LocationLagPosition, ClampedTempLagPosition, DeltaTime, 6.0f /*(1.0f / DeltaTime) / 6.0f*/);
 	
 	LocationLagPosition = FVector(LocationLagPosition.X * RotationLagAlpha, LocationLagPosition.Y * LocationLagAlpha, LocationLagPosition.Z);
 	
 	FRotator AirTiltPitch = FRotator((LocationLagPosition.Z * -2.0f), 0.0f, 0.0f);
-	AirTiltRotator = UKismetMathLibrary::RInterpTo(AirTiltRotator, AirTiltPitch, DeltaTime, (1.0f / DeltaTime) / 12.0f);
+	AirTiltRotator = UKismetMathLibrary::RInterpTo(AirTiltRotator, AirTiltPitch, DeltaTime, 12.0f /*(1.0f / DeltaTime) / 12.0f*/);
 	FVector AirOffsetX = FVector(LocationLagPosition.Z * -0.5f, 0.0f, 0.0f);
-	AirOffset = UKismetMathLibrary::VInterpTo(AirOffset, AirOffsetX, DeltaTime, (1.0f / DeltaTime) / 12.0f);
+	AirOffset = UKismetMathLibrary::VInterpTo(AirOffset, AirOffsetX, DeltaTime, 12.0f /*(1.0f / DeltaTime) / 12.0f*/);
 }
 
 void UFPSAnimInstanceBase::UpdatePelvisWeight()
@@ -426,7 +458,7 @@ void UFPSAnimInstanceBase::SetRootYawOffset(float NewRootYawOffset)
 		}
 		
 		float NormalizedNewRootYawOffset = UKismetMathLibrary::NormalizeAxis(NewRootYawOffset);
-		if (FinalClamp.X == FinalClamp.Y)
+		if (FinalClamp.X != FinalClamp.Y)
 		{
 			RootYawOffset = UKismetMathLibrary::ClampAngle(NormalizedNewRootYawOffset, FinalClamp.X, FinalClamp.Y);;
 		}
@@ -536,21 +568,18 @@ ELocomotionCardinalDirection UFPSAnimInstanceBase::GetOppositeCardinalDirection(
 
 bool UFPSAnimInstanceBase::ShouldEnableControlRig() const
 {
-	if (!bIsLocallyControlled) return false;
-	
 	float CurveValue = GetCurveValue(FName("DisableLegIK"));
 	return !bUseFootPlacement && CurveValue <= 0.0f;
-		
 }
 
-bool UFPSAnimInstanceBase::IsMovingPerpendicularToInitialPivot()
+/*bool UFPSAnimInstanceBase::IsMovingPerpendicularToInitialPivot()
 {
 	// We stay in a pivot when pivoting along a line (e.g. triggering a left-right pivot while playing a right-left pivot), but break out if the character makes a perpendicular change in direction.
 	
 	bool bPivotalInitialDirectionFB = PivotInitialDirection == ELocomotionCardinalDirection::LSD_Forward || PivotInitialDirection == ELocomotionCardinalDirection::LSD_Backward;
-	bool bLocalVelocityDirectionFB = !(LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Forward || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Backward);
+	bool bLocalVelocityDirectionFB = LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Forward || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Backward;
 	bool bPivotInitialDirectionLR = PivotInitialDirection == ELocomotionCardinalDirection::LSD_Left || PivotInitialDirection == ELocomotionCardinalDirection::LSD_Right;
-	bool bLocalVelocityDirectionLR = !(LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Left || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Right);
+	bool bLocalVelocityDirectionLR = LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Left || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Right;
 	
-	return (bPivotalInitialDirectionFB && bLocalVelocityDirectionFB) || (bPivotInitialDirectionLR && bLocalVelocityDirectionLR);
-}
+	return (bPivotalInitialDirectionFB && !bLocalVelocityDirectionFB) || (bPivotInitialDirectionLR && !bLocalVelocityDirectionLR);
+}*/

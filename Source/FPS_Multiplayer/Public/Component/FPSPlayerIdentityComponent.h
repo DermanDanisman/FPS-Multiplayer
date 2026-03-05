@@ -7,7 +7,7 @@
 #include "FPSPlayerIdentityComponent.generated.h"
 
 
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), Blueprintable)
 class FPS_MULTIPLAYER_API UFPSPlayerIdentityComponent : public UPlayerIdentityComponent
 {
 	GENERATED_BODY()

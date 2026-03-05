@@ -3,8 +3,8 @@
 #include "FPS_Multiplayer/Public/Animation/FPSAnimInstance.h"
 
 #include "AnimCharacterMovementLibrary.h"
-#include "TurnInPlace.h"
-#include "TurnInPlaceStatics.h"
+/*#include "TurnInPlace.h"
+#include "TurnInPlaceStatics.h"*/
 #include "Actor/Weapon/FPSWeapon.h"
 #include "Camera/CameraComponent.h"
 #include "Component/FPSCharacterMovementComponent.h"
@@ -178,14 +178,14 @@ void UFPSAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
     );*/
 }
 
-FTurnInPlaceAnimSet UFPSAnimInstance::GetTurnInPlaceAnimSet_Implementation() const
+/*FTurnInPlaceAnimSet UFPSAnimInstance::GetTurnInPlaceAnimSet_Implementation() const
 {
     if (bIsCrouching)
     {
        return TurnInPlaceAnimSetCrouched;
     } 
     return TurnInPlaceAnimSet;
-}
+}*/
 
 #pragma endregion Lifecycle
 

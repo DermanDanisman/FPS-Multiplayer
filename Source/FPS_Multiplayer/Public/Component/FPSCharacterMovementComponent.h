@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Data/DataAsset/FPSWeaponData.h"
-#include "Implementation/TurnInPlaceMovement.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "FPSCharacterMovementComponent.generated.h"
 
 /**
@@ -32,15 +32,13 @@ struct FCharacterGroundInfo
 };
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
-class FPS_MULTIPLAYER_API UFPSCharacterMovementComponent : public UTurnInPlaceMovement
+class FPS_MULTIPLAYER_API UFPSCharacterMovementComponent : public UCharacterMovementComponent
 {
 	GENERATED_BODY()
 
 public:
 	
 	UFPSCharacterMovementComponent();
-	
-	virtual void SimulateMovement(float DeltaTime) override;
 	
 	void SetReplicatedAcceleration(const FVector& InAcceleration);
 
