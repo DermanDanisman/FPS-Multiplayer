@@ -47,8 +47,8 @@ public:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 	
-	/*UFUNCTION(BlueprintCallable, BlueprintPure, Category = "ThreadSafe Getters", meta=(BlueprintThreadSafe))
-	virtual UFPSAnimInstanceBase* GetFPSAnimInstance() const;*/
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "ThreadSafe Getters", meta=(BlueprintThreadSafe))
+	virtual UFPSAnimInstanceBase* GetFPSAnimInstance() const;
 	
 	UFUNCTION(BlueprintCallable, Category = "Animation|Node Functions", meta = (BlueprintThreadSafe))
 	void SetLeftHandPoseOverrideWeight(const FAnimUpdateContext& Context, const FAnimNodeReference& Node);
@@ -58,10 +58,6 @@ public:
 	void SetBaseLastPivotTime(float InTime);
 	
 protected:
-	
-	// Add a variable to cache the parent instance
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "Anim Instances")
-	TObjectPtr<UFPSAnimInstanceBase> BaseAnimInstance;
 	
 	//
 	// --- Thread-Safe Data ---

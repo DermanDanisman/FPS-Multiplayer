@@ -19,7 +19,6 @@ UFPSCharacterMovementComponent::UFPSCharacterMovementComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 }
 
-
 void UFPSCharacterMovementComponent::InitializeComponent()
 {
 	Super::InitializeComponent();
@@ -75,6 +74,7 @@ const FCharacterGroundInfo& UFPSCharacterMovementComponent::GetGroundInfo()
 void UFPSCharacterMovementComponent::SetReplicatedAcceleration(const FVector& InAcceleration)
 {
 	bHasReplicatedAcceleration = true;
+	
 	Acceleration = InAcceleration;
 }
 

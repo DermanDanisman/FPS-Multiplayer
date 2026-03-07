@@ -6,17 +6,11 @@
 #include "AnimCharacterMovementLibrary.h"
 #include "SequenceEvaluatorLibrary.h"
 #include "Animation/FPSAnimInstanceBase.h"
-#include "GameFramework/CharacterMovementComponent.h"
 
 
 void UFPSItemAnimLayerBase::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
-	// Cache the base instance ONCE when the layer is linked
-	if (USkeletalMeshComponent* SkelMesh = GetOwningComponent())
-	{
-		BaseAnimInstance = Cast<UFPSAnimInstanceBase>(SkelMesh->GetAnimInstance());
-	}
 }
 
 void UFPSItemAnimLayerBase::NativeUninitializeAnimation()
@@ -36,10 +30,10 @@ void UFPSItemAnimLayerBase::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	// ========================================================================
 	// WORKER THREAD: Guard everything! If the Base isn't ready, do nothing.
 	// ========================================================================
-	if (!BaseAnimInstance) return;
+	if (!GetFPSAnimInstance()) return;
 
 	// Curves are thread-safe, so we evaluate them here
-	bShouldEnableFootPlacement = BaseAnimInstance->GetCurveValue(FName("DisableLegIK")) <= 0.0f && BaseAnimInstance->bUseFootPlacement; 
+	bShouldEnableFootPlacement = GetFPSAnimInstance()->GetCurveValue(FName("DisableLegIK")) <= 0.0f && GetFPSAnimInstance()->bUseFootPlacement; 
 
 	// Run your layer's specific math functions safely
 	UpdateBlendWeightData(DeltaSeconds);
@@ -48,18 +42,23 @@ void UFPSItemAnimLayerBase::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	UpdatePredictedStopDistance();
 }
 
+UFPSAnimInstanceBase* UFPSItemAnimLayerBase::GetFPSAnimInstance() const
+{
+	return Cast<UFPSAnimInstanceBase>(GetOwningComponent()->GetAnimInstance());
+}
+
 void UFPSItemAnimLayerBase::UpdateBlendWeightData(float DeltaTime)
 {
-	if ((!RaiseWeaponAfterFiringDuration && BaseAnimInstance->bIsCrouching) || 
-		   ((!BaseAnimInstance->bIsCrouching && BaseAnimInstance->bGameplayTagIsADS) && BaseAnimInstance->bIsOnGround))
+	if ((!RaiseWeaponAfterFiringDuration && GetFPSAnimInstance()->bIsCrouching) || 
+		   ((!GetFPSAnimInstance()->bIsCrouching && GetFPSAnimInstance()->bGameplayTagIsADS) && GetFPSAnimInstance()->bIsOnGround))
 	{
 		HipFireUpperBodyOverrideWeight = 0.0f;
 		AimOffsetBlendWeight = 0.0f;
 	}
 	else
 	{
-		if ((BaseAnimInstance->TimeSinceFiredWeapon < RaiseWeaponAfterFiringDuration) || 
-		   (BaseAnimInstance->bGameplayTagIsADS && (BaseAnimInstance->bIsCrouching || !BaseAnimInstance->bIsOnGround)) || 
+		if ((GetFPSAnimInstance()->TimeSinceFiredWeapon < RaiseWeaponAfterFiringDuration) || 
+		   (GetFPSAnimInstance()->bGameplayTagIsADS && (GetFPSAnimInstance()->bIsCrouching || !GetFPSAnimInstance()->bIsOnGround)) || 
 		   GetCurveValue(FName("applyHipfireOverridePose")) > 0.0f)
 		{
 			HipFireUpperBodyOverrideWeight = 1.0f;
@@ -69,7 +68,7 @@ void UFPSItemAnimLayerBase::UpdateBlendWeightData(float DeltaTime)
 		{
 			HipFireUpperBodyOverrideWeight = FMath::FInterpTo(HipFireUpperBodyOverrideWeight, 0.0f, DeltaTime, 1.0f);
           
-			if (FMath::Abs(BaseAnimInstance->RootYawOffset) < 10.0f && BaseAnimInstance->bHasAcceleration)
+			if (FMath::Abs(GetFPSAnimInstance()->RootYawOffset) < 10.0f && GetFPSAnimInstance()->bHasAcceleration)
 			{
 				AimOffsetBlendWeight = FMath::FInterpTo(AimOffsetBlendWeight, HipFireUpperBodyOverrideWeight, DeltaTime, 10.0f);   
 			}
@@ -83,13 +82,13 @@ void UFPSItemAnimLayerBase::UpdateBlendWeightData(float DeltaTime)
 
 void UFPSItemAnimLayerBase::UpdateJumpFallData(float DeltaTime)
 {
-	if (BaseAnimInstance->bIsFalling)
+	if (GetFPSAnimInstance()->bIsFalling)
 	{
 		TimeFalling = TimeFalling + DeltaTime;
 	}
 	else
 	{
-		if (BaseAnimInstance->bIsJumping)
+		if (GetFPSAnimInstance()->bIsJumping)
 			TimeFalling = 0.0f;
 	}
 }
@@ -112,12 +111,12 @@ void UFPSItemAnimLayerBase::UpdateSkeletalControlData()
 void UFPSItemAnimLayerBase::UpdatePredictedStopDistance()
 {
 	FVector LocalPredictedStopDistance = UAnimCharacterMovementLibrary::PredictGroundMovementStopLocation(
-		BaseAnimInstance->CachedLastUpdateVelocity, 
-		BaseAnimInstance->bCachedUseSeparateBrakingFriction,
-		BaseAnimInstance->CachedBrakingFriction,
-		BaseAnimInstance->CachedGroundFriction,
-		BaseAnimInstance->CachedBrakingFrictionFactor,
-		BaseAnimInstance->CachedBrakingDecelerationWalking
+		GetFPSAnimInstance()->CachedLastUpdateVelocity, 
+		GetFPSAnimInstance()->bCachedUseSeparateBrakingFriction,
+		GetFPSAnimInstance()->CachedBrakingFriction,
+		GetFPSAnimInstance()->CachedGroundFriction,
+		GetFPSAnimInstance()->CachedBrakingFrictionFactor,
+		GetFPSAnimInstance()->CachedBrakingDecelerationWalking
 	);
 
 	float NormalizedStopLocation = UKismetMathLibrary::VSizeXY(LocalPredictedStopDistance);
@@ -133,16 +132,10 @@ void UFPSItemAnimLayerBase::SetLeftHandPoseOverrideWeight(const FAnimUpdateConte
 void UFPSItemAnimLayerBase::SetBaseLastPivotTime(float InTime)
 {
 	// Safely check if the pointer exists before writing to it
-	if (BaseAnimInstance)
+	if (GetFPSAnimInstance())
 	{
 		// Call the thread-safe setter you already created on the Base Instance!
-		BaseAnimInstance->SetLastPivotTime(InTime);
+		GetFPSAnimInstance()->SetLastPivotTime(InTime);
 	}
 }
 
-/*
-UFPSAnimInstanceBase* UFPSItemAnimLayerBase::GetFPSAnimInstance() const
-{
-	return Cast<UFPSAnimInstanceBase>(GetOwningComponent()->GetAnimInstance());
-}
-*/

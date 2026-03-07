@@ -6,7 +6,6 @@
 #include "KismetAnimationLibrary.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCharacterMovementComponent.h"
-#include "UI/VREditorUISystem.h"
 
 void UFPSAnimInstanceBase::NativeInitializeAnimation()
 {
@@ -177,21 +176,21 @@ void UFPSAnimInstanceBase::UpdateRotationData(float DeltaTime)
 void UFPSAnimInstanceBase::UpdateVelocityData()
 {
 	bool bWasMovingLastUpdate = !LocalVelocity2D.IsZero();
-	
+    
 	WorldVelocity = CachedVelocity;
 	FVector WorldVelocity2D = FVector(WorldVelocity.X, WorldVelocity.Y, 0.f);
-	
+    
 	LocalVelocity2D = UKismetMathLibrary::LessLess_VectorRotator(WorldVelocity2D, WorldRotation);
 	
 	LocalVelocityDirectionAngle = UKismetAnimationLibrary::CalculateDirection(WorldVelocity2D, WorldRotation);
 	
 	LocalVelocityDirectionAngleWithOffset = FRotator::NormalizeAxis(LocalVelocityDirectionAngle - RootYawOffset);
 	
-	LocalVelocityDirection = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngleWithOffset, CardianalDirectionDeadZone, LocalVelocityDirection, bWasMovingLastUpdate);
+	LocalVelocityDirection = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngleWithOffset, CardianalDirectionDeadZone, 
+		LocalVelocityDirection, bWasMovingLastUpdate);
 	
-	LocalVelocityDirectionNoOffset = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngle, CardianalDirectionDeadZone, LocalVelocityDirectionNoOffset, bWasMovingLastUpdate);
-	
-	bHasVelocity = !UKismetMathLibrary::NearlyEqual_FloatFloat(LocalVelocity2D.SizeSquared2D(), 0.0f);
+	LocalVelocityDirectionNoOffset = SelectCardinalDirectionFromAngle(LocalVelocityDirectionAngle, CardianalDirectionDeadZone, 
+		LocalVelocityDirectionNoOffset, bWasMovingLastUpdate);
 }
 
 void UFPSAnimInstanceBase::UpdateAccelerationData()

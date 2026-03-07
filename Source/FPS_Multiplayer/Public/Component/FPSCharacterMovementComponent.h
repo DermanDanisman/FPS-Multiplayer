@@ -67,6 +67,10 @@ protected:
 	UPROPERTY(Transient)
 	bool bHasReplicatedAcceleration = false;
 	
+	// A safe place to store network acceleration before the engine tries to overwrite it
+	UPROPERTY(Transient)
+	FVector SafeReplicatedAcceleration;
+	
 	// Cache these values from UpdateMovementSettings so we can swap between them
 	UPROPERTY(EditDefaultsOnly, Category = "Config|Movement")
 	float RunSpeed = 450.f;
