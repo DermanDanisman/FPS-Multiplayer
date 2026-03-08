@@ -74,8 +74,24 @@ const FCharacterGroundInfo& UFPSCharacterMovementComponent::GetGroundInfo()
 void UFPSCharacterMovementComponent::SetReplicatedAcceleration(const FVector& InAcceleration)
 {
 	bHasReplicatedAcceleration = true;
-	
-	Acceleration = InAcceleration;
+    
+	// Store it safely. Do NOT assign it to Acceleration yet!
+	SafeReplicatedAcceleration = InAcceleration;
+}
+
+void UFPSCharacterMovementComponent::UpdateProxyAcceleration()
+{
+	// If we are a proxy and have successfully received network acceleration...
+	if (bHasReplicatedAcceleration)
+	{
+		// ...inject it into the engine's protected variable!
+		Acceleration = SafeReplicatedAcceleration;
+	}
+	else
+	{
+		// Otherwise, let the engine do its default behavior
+		Super::UpdateProxyAcceleration();
+	}
 }
 
 void UFPSCharacterMovementComponent::UpdateMovementSettings(const FWeaponMovementData& NewData)

@@ -53,7 +53,22 @@ AFPSPlayerCharacter::AFPSPlayerCharacter(const FObjectInitializer& ObjectInitial
 	OverheadWidgetComponent->SetOwnerNoSee(true);
 	OverheadWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
 	OverheadWidgetComponent->SetDrawAtDesiredSize(true);
-
+	
+	/*PistolMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("SK_Pistol"));
+	PistolMesh->SetupAttachment(GetMesh(), FName("weapon_r_pistol"));
+	PistolMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PistolMesh->SetVisibility(false);
+	
+	RifleMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("SK_Rifle"));
+	RifleMesh->SetupAttachment(GetMesh(), FName("weapon_r_rifle"));
+	RifleMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	RifleMesh->SetVisibility(false);
+	
+	ShotgunMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("SK_Shotgun"));
+	ShotgunMesh->SetupAttachment(GetMesh(), FName("weapon_r_shotgun"));
+	ShotgunMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ShotgunMesh->SetVisibility(false);*/
+	
 	// MOVEMENT SETTINGS
 	bUseControllerRotationYaw = true; 
     FPSMovementComponent = CastChecked<UFPSCharacterMovementComponent>(ThisClass::GetMovementComponent());
@@ -282,6 +297,11 @@ void AFPSPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		
 		// Interaction (ex: F Key)
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::OnInteractedPressed);
+		
+		// Weapon Hotkeys
+		EnhancedInputComponent->BindAction(PrimaryWeaponHotkeyAction, ETriggerEvent::Started, this, &AFPSPlayerCharacter::OnPrimaryWeaponHotkeyPressed);
+		EnhancedInputComponent->BindAction(SecondaryWeaponHotkeyAction, ETriggerEvent::Started, this, &AFPSPlayerCharacter::OnSecondaryWeaponHotkeyPressed);
+		EnhancedInputComponent->BindAction(SideArmWeaponHotkeyAction, ETriggerEvent::Started, this, &AFPSPlayerCharacter::OnSideArmWeaponHotkeyPressed);
 	}
 }
 
@@ -417,6 +437,18 @@ void AFPSPlayerCharacter::OnAimPressed()
 		//CameraComponent->FieldOfView = FMath::FInterpTo(CameraComponent->FieldOfView, 60.f, DeltaSeconds, 10.f);
 		SetAimState(EAimState::EAS_ADS);
 		OnAimStateChanged.Broadcast(LayerStates.AimState);
+		
+		if (UAnimInstance* AnimInst = GetMesh()->GetAnimInstance())
+		{
+			// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+			if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInst))
+			{
+				// Now you can call the functions natively like any normal C++ object!
+				FPSAnimInterface->SetADSUpper(true);
+				FPSAnimInterface->SetADS(true);
+			}
+		}
+		TriggerTimelineAimFOV(false);
 	}
 }
 
@@ -428,6 +460,19 @@ void AFPSPlayerCharacter::OnAimReleased()
 	//CameraComponent->FieldOfView = FMath::FInterpTo(CameraComponent->FieldOfView, 90.f, DeltaSeconds, 5.f);
 	if (bWantsToSprint) TryStartSprinting(); // Resume!
 	OnAimStateChanged.Broadcast(EAimState::EAS_None);
+	
+	if (UAnimInstance* AnimInst = GetMesh()->GetAnimInstance())
+	{
+		// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+		if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInst))
+		{
+			// Now you can call the functions natively like any normal C++ object!
+			FPSAnimInterface->SetADSUpper(false);
+			FPSAnimInterface->SetADS(false);
+		}
+	}
+	
+	TriggerTimelineAimFOV(true);
 }
 
 void AFPSPlayerCharacter::SetAimState(EAimState NewState)
@@ -470,6 +515,27 @@ void AFPSPlayerCharacter::OnInteractedPressed(const FInputActionValue& Value)
 	{
 		InteractionComponent->PrimaryInteract();
 	}
+}
+
+void AFPSPlayerCharacter::OnPrimaryWeaponHotkeyPressed(const FInputActionValue& Value)
+{
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return;
+	
+	CombatComponent->OnWeaponHotkeyPressed();
+}
+
+void AFPSPlayerCharacter::OnSecondaryWeaponHotkeyPressed(const FInputActionValue& Value)
+{
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return;
+	
+	CombatComponent->OnWeaponHotkeyPressed();
+}
+
+void AFPSPlayerCharacter::OnSideArmWeaponHotkeyPressed(const FInputActionValue& Value)
+{
+	if (!CombatComponent || !CombatComponent->GetEquippedWeapon()) return;
+	
+	CombatComponent->OnWeaponHotkeyPressed();
 }
 
 void AFPSPlayerCharacter::SetGaitState(EGait NewState)
@@ -652,7 +718,7 @@ bool AFPSPlayerCharacter::CanReload() const
 	
 	if (CombatComponent->GetEquippedWeapon() == nullptr) return false;
 	if (CombatComponent->GetCombatState() != ECombatState::ECS_Unoccupied) return false;
-	if (CombatComponent->GetEquippedWeapon()->GetCurrentClipAmmo() >= CombatComponent->GetEquippedWeapon()->GetMaxClipAmmo()) return false;
+	if (CombatComponent->GetEquippedWeapon()->GetCurrentClipAmmo() >= CombatComponent->GetEquippedWeapon()->GetWeaponData()->MaxClipAmmo) return false;
 	if (CombatComponent->GetCarriedAmmo() <= 0) return false;
 	if (FPSMovementComponent->IsFalling()) return false;
 	return true;

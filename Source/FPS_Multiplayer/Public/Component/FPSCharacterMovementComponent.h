@@ -41,6 +41,9 @@ public:
 	UFPSCharacterMovementComponent();
 	
 	void SetReplicatedAcceleration(const FVector& InAcceleration);
+	
+	// OVERRIDE THIS: The engine hook specifically for modifying proxy acceleration
+	virtual void UpdateProxyAcceleration() override;
 
 	// Returns the current ground info.  Calling this will update the ground info if it's out of date.
 	UFUNCTION(BlueprintCallable, Category = "FPSCharacterMovement")

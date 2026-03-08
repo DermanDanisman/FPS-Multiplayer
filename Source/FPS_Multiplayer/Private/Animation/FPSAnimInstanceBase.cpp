@@ -4,16 +4,42 @@
 #include "Animation/FPSAnimInstanceBase.h"
 
 #include "KismetAnimationLibrary.h"
+#include "Actor/Weapon/FPSWeapon.h"
 #include "Character/FPSPlayerCharacter.h"
 #include "Component/FPSCharacterMovementComponent.h"
+#include "Component/FPSCombatComponent.h"
 
 void UFPSAnimInstanceBase::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+	
+	if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
+	{
+	   UFPSCombatComponent* Combat = Character->GetCombatComponent();
+	   if (Combat)
+	   {
+		  Combat->OnWeaponEquipped.Remove(OnWeaponEquippedDelegateHandle);
+		  OnWeaponEquippedDelegateHandle = Combat->OnWeaponEquipped.AddUObject(
+			 this, &ThisClass::OnCharacterWeaponEquipped);
+
+		  if (Combat->GetEquippedWeapon())
+		  {
+			 OnCharacterWeaponEquipped(Combat->GetEquippedWeapon());
+		  }
+	   }
+	}
 }
 
 void UFPSAnimInstanceBase::NativeUninitializeAnimation()
 {
+	if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
+	{
+	   if (UFPSCombatComponent* Combat = Character->GetCombatComponent())
+	   {
+		  Combat->OnWeaponEquipped.Remove(OnWeaponEquippedDelegateHandle);
+	   }
+	}
+	
 	Super::NativeUninitializeAnimation();
 }
 
@@ -63,6 +89,51 @@ void UFPSAnimInstanceBase::NativeUpdateAnimation(float DeltaSeconds)
 
     LayerStates = Character->GetLayerStates();
     bIsLocallyControlled = Character->IsLocallyControlled();
+	
+	// ========================================================================
+	// GAME THREAD ONLY: Physics Line Traces
+	// ========================================================================
+	if (!bIsLocallyControlled)
+	{
+		FName SocketToUse = Character->GetMesh()->DoesSocketExist(FName("CameraSocket")) ? FName("CameraSocket") : FName("head");
+		FVector ProxyCameraLocation = Character->GetMesh()->GetSocketLocation(SocketToUse);
+		FVector ProxyCameraDirection = CachedControlRotation.Vector();
+		FVector TraceStart = ProxyCameraLocation;
+		FVector TraceEnd = TraceStart + (ProxyCameraDirection * 20000.f); // Trace out 200 meters
+
+		FHitResult HitResult;
+		FCollisionObjectQueryParams ObjectQueryParams;
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_Pawn);       // Hit other players
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic); // Hit walls/floors
+          
+		FCollisionQueryParams Params;
+		Params.AddIgnoredActor(Character); // Don't let the proxy hit their own body
+           
+		bool bHit = GetWorld()->LineTraceSingleByObjectType(HitResult, TraceStart, TraceEnd, ObjectQueryParams, Params);
+          
+		if (bHit)
+		{
+			AimDistance = HitResult.Distance;
+			AimTargetLocation = HitResult.Location;
+			
+			if (bDrawProxyAimDebug)
+			{
+				DrawDebugLine(GetWorld(), TraceStart, HitResult.Location, FColor::Green, false, -1.f, 0, 1.f);
+				DrawDebugSphere(GetWorld(), HitResult.Location, 8.f, 12, FColor::Red, false, -1.f);
+			}
+		}
+		else
+		{
+			AimDistance = 20000.f; // Fallback to max distance if hitting nothing
+            
+			if (bDrawProxyAimDebug)
+			{
+				DrawDebugLine(GetWorld(), TraceStart, TraceEnd, FColor::Red, false, -1.f, 0, 1.f);
+			}
+		}
+	}
+	
+	GatherLeftHandTransform();
 }
 
 void UFPSAnimInstanceBase::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
@@ -88,6 +159,18 @@ void UFPSAnimInstanceBase::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 		UpdatePelvisWeight();
 		UpdateSwayData(DeltaSeconds);
 		UpdateLagPosition(DeltaSeconds);
+		
+		// 1. Calculate the smooth transition Alpha (0.0 = Hipfire, 1.0 = ADS)
+		// Adjust the '15.0f' interp speed to match your weapon's Aiming Speed!
+		float TargetAimAlpha = bGameplayTagIsADS ? 1.0f : 0.0f;
+		AimingAlpha = FMath::FInterpTo(AimingAlpha, TargetAimAlpha, DeltaSeconds, 15.0f);
+        
+		// 2. Smoothly blend the two Transforms together using the Kismet Math Library
+		CurrentWeaponOffsetTransform = UKismetMathLibrary::TLerp(
+			HipfireOffsetTransform, 
+			ADSOffsetTransform, 
+			AimingAlpha
+		);
 	}
 	
 	// Evaluate the function here and store it in the simple boolean variable!
@@ -459,7 +542,11 @@ void UFPSAnimInstanceBase::SetRootYawOffset(float NewRootYawOffset)
 		float NormalizedNewRootYawOffset = UKismetMathLibrary::NormalizeAxis(NewRootYawOffset);
 		if (FinalClamp.X != FinalClamp.Y)
 		{
-			RootYawOffset = UKismetMathLibrary::ClampAngle(NormalizedNewRootYawOffset, FinalClamp.X, FinalClamp.Y);;
+			RootYawOffset = UKismetMathLibrary::ClampAngle(
+				NormalizedNewRootYawOffset, 
+				FinalClamp.X, 
+				FinalClamp.Y
+			);;
 		}
 		else
 		{
@@ -513,11 +600,33 @@ void UFPSAnimInstanceBase::ProcessTurnYawCurve()
 }
 
 //
+// --- Delegate Functions ---
+//
+
+void UFPSAnimInstanceBase::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
+{
+	bIsArmed = IsValid(NewWeapon);
+    
+	if (bIsArmed)
+	{
+		// Grab the specific offsets for this exact weapon
+		HipfireOffsetTransform = NewWeapon->GetWeaponData()->HipfireOffsetTransform;
+		ADSOffsetTransform = NewWeapon->GetWeaponData()->ADSOffsetTransform; 
+	}
+	else
+	{
+		HipfireOffsetTransform = FTransform::Identity;
+		ADSOffsetTransform = FTransform::Identity;
+		CurrentWeaponOffsetTransform = FTransform::Identity;
+	}
+}
+
+//
 // --- Helper Functions ---
 //
 
 ELocomotionCardinalDirection UFPSAnimInstanceBase::SelectCardinalDirectionFromAngle(float NewAngle,
-                                                                                    float NewDeadZone, ELocomotionCardinalDirection CurrentDirection, bool bUseCurrentDirection) const
+	float NewDeadZone, ELocomotionCardinalDirection CurrentDirection, bool bUseCurrentDirection) const
 {
 	float AbsoluteNewAngle = FMath::Abs(NewAngle);
 	float ForwardDeadZone = NewDeadZone;
@@ -571,14 +680,39 @@ bool UFPSAnimInstanceBase::ShouldEnableControlRig() const
 	return !bUseFootPlacement && CurveValue <= 0.0f;
 }
 
-/*bool UFPSAnimInstanceBase::IsMovingPerpendicularToInitialPivot()
+void UFPSAnimInstanceBase::GatherLeftHandTransform()
 {
-	// We stay in a pivot when pivoting along a line (e.g. triggering a left-right pivot while playing a right-left pivot), but break out if the character makes a perpendicular change in direction.
-	
-	bool bPivotalInitialDirectionFB = PivotInitialDirection == ELocomotionCardinalDirection::LSD_Forward || PivotInitialDirection == ELocomotionCardinalDirection::LSD_Backward;
-	bool bLocalVelocityDirectionFB = LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Forward || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Backward;
-	bool bPivotInitialDirectionLR = PivotInitialDirection == ELocomotionCardinalDirection::LSD_Left || PivotInitialDirection == ELocomotionCardinalDirection::LSD_Right;
-	bool bLocalVelocityDirectionLR = LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Left || LocalVelocityDirection == ELocomotionCardinalDirection::LSD_Right;
-	
-	return (bPivotalInitialDirectionFB && !bLocalVelocityDirectionFB) || (bPivotInitialDirectionLR && !bLocalVelocityDirectionLR);
-}*/
+	AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner());
+	if (!Character || !Character->GetCombatComponent()) return;
+
+	AFPSWeapon* EquippedWeapon = Character->GetCombatComponent()->GetEquippedWeapon();
+	if (!EquippedWeapon || !EquippedWeapon->GetWeaponMesh()) return;
+
+	FTransform SocketTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("LeftHandSocket"), RTS_World);
+
+	FVector OutPosition;
+	FRotator OutRotation;
+
+	Character->GetMesh()->TransformToBoneSpace(
+	   FName("hand_r"),
+	   SocketTransform.GetLocation(),
+	   SocketTransform.Rotator(),
+	   OutPosition,
+	   OutRotation
+	);
+
+	LeftHandTargetTransform.SetLocation(OutPosition);
+	LeftHandTargetTransform.SetRotation(FQuat(OutRotation));
+}
+
+void UFPSAnimInstanceBase::AnimNotify_WeaponGrab()
+{
+	// The exact frame the hand touches the gun, this fires!
+	if (AFPSPlayerCharacter* Character = Cast<AFPSPlayerCharacter>(TryGetPawnOwner()))
+	{
+		if (UFPSCombatComponent* Combat = Character->GetCombatComponent())
+		{
+			Combat->FinishWeaponEquip();
+		}
+	}
+}

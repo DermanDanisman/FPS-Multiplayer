@@ -72,13 +72,16 @@ class FPS_MULTIPLAYER_API UFPSWeaponData : public UPrimaryDataAsset
 	
 public:
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Identity")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, BlueprintReadOnly, Category = "Identity")
 	FString WeaponName = "Rifle";
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Mesh")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mesh")
+	TObjectPtr<USkeletalMesh> WeaponMesh;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mesh")
 	FName WeaponHandSocketName = "WeaponHandSocket";
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Mesh")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mesh")
 	FName MuzzleSocketName = "Muzzle";
 	
 	// --- MOVEMENT DATA ---
@@ -94,62 +97,62 @@ public:
 
 	// --- COMBAT STATS ---
     
-	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat")
 	float FireDelay = 0.15f; // Fire Rate
     
-	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat")
 	bool bIsAutomatic = true;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat")
 	float Range = 10000.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat")
 	float Damage = 20.f;
     
-	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat")
 	int32 MaxClipAmmo = 30;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Ballistics")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Ballistics")
 	EWeaponFireType FireType = EWeaponFireType::EWFT_HitScan;
 
 	/** Only used if FireType == Projectile */
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Ballistics", meta=(EditCondition="FireType == EWeaponFireType::EWFT_Projectile"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Ballistics", meta=(EditCondition="FireType == EWeaponFireType::EWFT_Projectile"))
 	TSubclassOf<AFPSProjectile> ProjectileClass;
 	
 	/** How much the gun kicks UP (Pitch). */
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Recoil")
 	TObjectPtr<UCurveVector> RecoilPatternCurve;
 	
 	/** Multiplier to scale the curve values globally (e.g., 1.0 = Normal, 0.5 = Silenced) */
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Recoil")
 	float RecoilScale = 1.0f;
 	
 	/** How fast the recoil interpolates to the target. Higher = Snappier. */
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Recoil")
 	float RecoilInterpSpeed = 30.0f;
     
 	/** How fast the recoil recovers (centers back) when not firing. */
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Recoil")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Recoil")
 	float RecoilRecoverySpeed = 20.0f;
     
 	// --- ANIMATION & FX ---
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals|UI")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals|UI")
 	TObjectPtr<UTexture2D> WeaponIcon; // The picture of the gun
 
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals|UI")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals|UI")
 	TObjectPtr<UTexture2D> CrosshairTexture; // Optional: Shotgun vs Sniper crosshair
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TSubclassOf<UAnimInstance> EquippedAnimInstanceClass;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TSubclassOf<UAnimInstance> UnEquippedAnimInstanceClass;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> EquipMontage;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> UnEquipMontage;
 	
 	/** 
@@ -158,25 +161,25 @@ public:
 	 * @settings Inside the Montage, set the "Slot" to something like "ActionSlot" or "FireSlot".
 	 * @note If your animation is Additive, ensure the Montage uses the correct Additive settings.
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> FireMontage;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> AimedFireMontage;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Animation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Animation")
 	TObjectPtr<UAnimMontage> ReloadMontage;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | FX")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | FX")
 	TObjectPtr<UParticleSystem> MuzzleFlash;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | FX")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | FX")
 	TObjectPtr<UParticleSystem> ImpactParticles;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Sound")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Sound")
 	TObjectPtr<USoundBase> FireSound;
 	
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Sound")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Sound")
 	TObjectPtr<USoundBase> ReloadSound;
 	
 	/** 
@@ -184,78 +187,16 @@ public:
 	 * @usage Creates that "kick" feeling on the screen.
 	 * @recommendation Use a 'MatineeCameraShake' or 'LegacyCameraShake' blueprint for easy tuning.
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals | Camera")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Visuals | Camera")
 	TSubclassOf<UCameraShakeBase> FireCameraShake;
-
-	// --- PROCEDURAL AIMING & IK CONFIGURATION ---
-
-    /** 
-     * The forward offset (X-Axis) applied to the weapon when Aiming Down Sights (ADS).
-     * @usage Lower values pull the sight closer to the eye. Higher values push it away.
-     * @note Use this to prevent the rear sight from clipping into the camera or to adjust the "eye relief" of a scope.
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
-    float DistanceFromCamera = 0.f;
-
-    /** 
-     * The procedural offset applied to the weapon when NOT aiming (Hip Fire).
-     * @usage Controls the "resting" position of the gun on screen.
-     * X = Forward/Back, Y = Right/Left, Z = Up/Down.
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position")
-    FTransform HipFireOffset;
-	
-	// =========================================================================
-    //                  PARALLAX & CONVERGENCE CONFIGURATION
-    // =========================================================================
-
-    /** 
-     * The physical horizontal distance (in cm) from the character's camera to the weapon's barrel.
-     * Positive values indicate the weapon is held to the Right (standard right-handed stance).
-     * This dynamically calculates the Yaw angle required to point the gun at the crosshair,
-     * preventing the weapon from shooting past the target's right shoulder (Parallax Error).
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
-    float GunHorizontalOffsetCM = 5.0f;
-
-    /** 
-     * The physical vertical distance (in cm) from the character's camera to the weapon's barrel.
-     * Negative values indicate the weapon is held Below the camera (e.g., shoulder/chest level).
-     * This dynamically calculates the Pitch angle required to tilt the gun upward,
-     * ensuring the barrel intersects the camera's line of sight at the correct distance.
-     */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
-    float GunVerticalOffsetCM = 15.0f;
-    
-    /** 
-     * Static rotation applied to perfectly align the base Aim Offset animation at infinite distance.
-     * Tweak this so the gun points perfectly straight when aiming at the sky. 
-     */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
-    float GunPitchZeroingAngle = -1.75f; // Negative usually points the barrel down
-
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Parallax & Convergence Config")
-    float GunYawZeroingAngle = 0.0f;
-
-    // --- TWO BONE IK (HAND PLACEMENT) ---
-
-	/**
-	 *  The Pole Vector target for the Right Elbow.
-	 * @usage Controls the direction the right elbow points. Critical for preventing the "Chicken Wing" look.
-	 * @default (X=-68.0, Y=-40.0, Z=113.0)
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
-	FVector RightElbowJointLocation = FVector(-68.f, 40.f, 113.f);
-	
-	/**
-	 *  The Pole Vector target for the Left Elbow.
-	 * @usage Controls the direction the left elbow points. Critical for preventing the "Chicken Wing" look.
-	 * @default (X=68.0, Y=-40.0, Z=113.0)
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Position | Two Bone IK")
-	FVector LeftElbowJointLocation = FVector(68.f, -40.f, 113.f);
 	
 	// --- ANIMATION TIMING (Visuals) ---
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aiming")
+	FTransform HipfireOffsetTransform;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aiming")
+	FTransform ADSOffsetTransform;
 
 	/**
 	 *  The duration (in Seconds) for the Animation Blueprint to blend from Hip Pose to ADS Pose.
@@ -263,7 +204,7 @@ public:
 	 * @note Determines how fast the arms visually lift up. Does NOT affect the procedural math speed.
 	 * @example Sniper: 0.4s (Slow lift) | Pistol: 0.1s (Fast snap)
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01"))
 	float TimeToAim = 0.25f;
 
 	/**
@@ -271,62 +212,6 @@ public:
 	 * @usage Bind this to the "Blend Duration" in your AnimGraph State Machine (ADS -> Hip transition).
 	 * @note Usually slightly faster than TimeToAim for responsiveness.
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aiming | Timing", meta = (ClampMin = "0.01"))
 	float TimeFromAim = 0.2f;
-	
-	// --- SIGHT CONFIGURATION (Socket & Tag Linking) ---
-
-    /**
-     * The name of the socket on the Weapon Mesh that represents the "Red Dot" or "Crosshair" location.
-     * @usage Procedural aiming will rotate the weapon until this socket is aligned with the Camera center.
-     * @requirement Must exist on the mesh component tagged with 'OpticTagPrefix'.
-     * @default "OpticAimpoint"
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-    FName OpticSocketName = FName("OpticAimpoint");
-
-    /** 
-     * The name of the socket placed at the TIP of the Front Iron Sight post.
-     * @usage Used in combination with RearSightSocketName to calculate the alignment vector (Line of Sight).
-     * @requirement Must exist on the mesh component tagged with 'FrontSightTagPrefix'.
-     * @default "FrontAimpoint"
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-    FName FrontSightSocketName = FName("FrontAimpoint");
-
-    /**
-     * The name of the socket placed at the CENTER of the Rear Iron Sight notch or peephole.
-     * @usage The aim math pivots the gun around this point.
-     * @requirement Must exist on the same mesh as the Front Sight, OR on a component tagged 'RearSightTagPrefix'.
-     * @default "RearAimpoint"
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-    FName RearSightSocketName = FName("RearAimpoint");
-
-    /** 
-     * The Component Tag prefix used to identify Optic meshes (Red Dots, Scopes).
-     * @usage The code looks for components with tags like "OpticSight_0", "OpticSight_1".
-     * @note Do NOT include the "_0" index here. Just the prefix.
-     * @default "OpticSight"
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-    FString OpticTagPrefix = TEXT("OpticSight");
-
-    /** 
-     * The Component Tag prefix used to identify the mesh containing the Front Iron Sight.
-     * @usage Usually applied to the main weapon mesh tag array (e.g., "FrontSight_0").
-     * @note This is the "Entry Point" for finding Iron Sights.
-     * @default "FrontSight"
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-    FString FrontSightTagPrefix = TEXT("FrontSight");
-
-    /**
-     * The Component Tag prefix used to identify the mesh containing the Rear Iron Sight.
-     * @usage Only required if the Rear Sight is a separate attachment (e.g., a removable Carry Handle).
-     * @note If the Rear Sight is on the main mesh (like an AK47), the code finds it automatically without this tag.
-     * @default "RearSight"
-     */
-    UPROPERTY(EditDefaultsOnly, Category = "Aiming | Sights")
-    FString RearSightTagPrefix = TEXT("RearSight");
 };

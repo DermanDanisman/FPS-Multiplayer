@@ -68,7 +68,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
         {
             if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
             {
-                WeaponHandler->PlayEquipMontage(WeaponToEquip->GetEquipMontage());
+                WeaponHandler->PlayEquipMontage(WeaponToEquip->GetWeaponData()->EquipMontage);
             }
         }
     }
@@ -103,7 +103,7 @@ void UFPSCombatComponent::EquipWeapon(AFPSWeapon* WeaponToEquip)
         {
            if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
            {
-              WeaponHandler->PlayEquipMontage(EquippedWeapon->GetEquipMontage());
+              WeaponHandler->PlayEquipMontage(EquippedWeapon->GetWeaponData()->EquipMontage);
            }
         }
     }
@@ -138,17 +138,12 @@ void UFPSCombatComponent::OnRep_EquippedWeapon(AFPSWeapon* LastEquippedWeapon)
 			{
 				if (IFPSWeaponHandlerInterface* WeaponHandler = Cast<IFPSWeaponHandlerInterface>(OwnerCharacter))
 				{
-					WeaponHandler->PlayEquipMontage(EquippedWeapon->GetEquipMontage());
+					WeaponHandler->PlayEquipMontage(EquippedWeapon->GetWeaponData()->EquipMontage);
 				}
 			}
 		}
        
 		EquippedWeapon->SetOwner(OwnerCharacter);
-       
-		// Force sync movement speeds for prediction
-		const FWeaponMovementData& WeaponData = EquippedWeapon->GetMovementData();
-		OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData); 
-		OwnerCharacter->SetOverlayState(WeaponData.OverlayState); 
 	}
 }
 
@@ -220,18 +215,18 @@ void UFPSCombatComponent::Fire()
     
 		FVector HitTarget = HitResult.bBlockingHit ? HitResult.ImpactPoint : HitResult.TraceEnd;
 		EquippedWeapon->Fire(HitTarget);
-		OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetMaxClipAmmo());
+		OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetWeaponData()->MaxClipAmmo);
 		ShotsFired++;
 		EquippedWeapon->ApplyRecoil(ShotsFired);
 
 		// 4. AUTOMATIC LOOP
-		if (EquippedWeapon->IsAutomatic())
+		if (EquippedWeapon->GetWeaponData()->bIsAutomatic)
 		{
 			GetWorld()->GetTimerManager().SetTimer(
 			   FireTimerHandle, 
 			   this, 
 			   &ThisClass::Fire, 
-			   EquippedWeapon->GetFireDelay(), 
+			   EquippedWeapon->GetWeaponData()->FireDelay, 
 			   false 
 			);
 		}
@@ -269,7 +264,7 @@ void UFPSCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 		{
 			// Start slightly forward to avoid colliding with own capsule if running fast
 			FVector Start = CrosshairWorldPosition + (CrosshairWorldDirection * 30.f); 
-			FVector End = Start + (CrosshairWorldDirection * EquippedWeapon->GetWeaponRange());
+			FVector End = Start + (CrosshairWorldDirection * EquippedWeapon->GetWeaponData()->Range);
            
 			GetWorld()->LineTraceSingleByChannel(
 			   TraceHitResult,
@@ -300,7 +295,7 @@ void UFPSCombatComponent::Reload()
     
 	// 2. Ammo Checks
 	// Don't reload if full
-	if (EquippedWeapon->GetCurrentClipAmmo() >= EquippedWeapon->GetMaxClipAmmo()) return;
+	if (EquippedWeapon->GetCurrentClipAmmo() >= EquippedWeapon->GetWeaponData()->MaxClipAmmo) return;
 	// Don't reload if empty reserve
 	if (CarriedAmmo <= 0) return;
 
@@ -316,7 +311,7 @@ void UFPSCombatComponent::Server_Reload_Implementation()
 	CombatState = ECombatState::ECS_Reloading;
     
 	// Trigger Visuals for Everyone
-	if (EquippedWeapon->GetReloadMontage())
+	if (EquippedWeapon->GetWeaponData()->ReloadMontage)
 	{
 		Multicast_Reload();
 	}
@@ -327,11 +322,11 @@ void UFPSCombatComponent::Multicast_Reload_Implementation()
 	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
-		if (EquippedWeapon && EquippedWeapon->GetReloadMontage())
+		if (EquippedWeapon && EquippedWeapon->GetWeaponData()->ReloadMontage)
 		{
 			// Play on the correct mesh!
 			USkeletalMeshComponent* TargetMesh = OwnerCharacter->GetMesh();
-			TargetMesh->GetAnimInstance()->Montage_Play(EquippedWeapon->GetReloadMontage());
+			TargetMesh->GetAnimInstance()->Montage_Play(EquippedWeapon->GetWeaponData()->ReloadMontage);
 		}
 	}
 }
@@ -352,7 +347,7 @@ void UFPSCombatComponent::FinishReloading()
 
 	// 3. --- MATH --- (Server Only)
 	// Calculate how much space is in the mag
-	int32 RoomInMag = EquippedWeapon->GetMaxClipAmmo() - EquippedWeapon->GetCurrentClipAmmo();
+	int32 RoomInMag = EquippedWeapon->GetWeaponData()->MaxClipAmmo - EquippedWeapon->GetCurrentClipAmmo();
     
 	// Calculate how much we can actually give
 	int32 AmountToReload = FMath::Min(RoomInMag, CarriedAmmo);
@@ -366,7 +361,7 @@ void UFPSCombatComponent::FinishReloading()
 	
 	// 5. UPDATE UI (Manual Broadcast)
 	// Do NOT call MonitorWeapon() here.
-	OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetMaxClipAmmo());
+	OnWeaponAmmoChanged.Broadcast(EquippedWeapon->GetCurrentClipAmmo(), EquippedWeapon->GetWeaponData()->MaxClipAmmo);
 	OnCarriedAmmoChanged.Broadcast(CarriedAmmo);
 }
 
@@ -380,26 +375,34 @@ void UFPSCombatComponent::FinishWeaponEquip()
 	// 1. Target the correct mesh
 	USkeletalMeshComponent* TargetMesh = OwnerCharacter->GetMesh();
 
-	// 2. Attach the Visuals
+	// ========================================================================
+	// THE DUAL-SOCKET FIX
+	// Local players use the FPS pose (wrist twisted). Proxies use 3rd Person pose.
+	// We dynamically attach to the pre-rotated socket so it always points forward!
+	// ========================================================================
+	FName TargetSocket = OwnerCharacter->IsLocallyControlled() ? EquippedWeapon->GetWeaponData()->WeaponHandSocketName : FName("WeaponSocket");
+
 	EquippedWeapon->AttachToComponent(
-		TargetMesh,
-		FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
-		EquippedWeapon->GetWeaponHandSocketName()
+	   TargetMesh,
+	   FAttachmentTransformRules::SnapToTargetNotIncludingScale, 
+	   EquippedWeapon->GetWeaponData()->WeaponHandSocketName
 	);
-    
-	// 3. Link the Animation Layers to the targeted mesh
-	TargetMesh->LinkAnimClassLayers(EquippedWeapon->GetEquippedAnimInstanceClass());
 	
-	// 4. The Interface Bridge!
-	if (UAnimInstance* AnimInst = TargetMesh->GetAnimInstance())
+	// Force sync movement speeds for prediction
+	const FWeaponMovementData& WeaponData = EquippedWeapon->GetWeaponData()->WeaponMovementData;
+	OwnerCharacter->GetFPSMovementComponent()->UpdateMovementSettings(WeaponData); 
+	OwnerCharacter->SetOverlayState(WeaponData.OverlayState); 
+
+	bIsWeaponEquipped = true;
+	
+	TargetMesh->LinkAnimClassLayers(EquippedWeapon->GetWeaponData()->EquippedAnimInstanceClass);
+
+	// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+	if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(TargetMesh->GetAnimInstance()))
 	{
-		// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
-		if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInst))
-		{
-			// Now you can call the functions natively like any normal C++ object!
-			FPSAnimInterface->SetUnarmed(false);
-			FPSAnimInterface->SetFPSMode(OwnerCharacter->IsLocallyControlled());
-		}
+		// Now you can call the functions natively like any normal C++ object!
+		FPSAnimInterface->SetUnarmed(false);
+		FPSAnimInterface->SetFPSMode(OwnerCharacter->IsLocallyControlled());
 	}
     
 	// 4. Fire the Broadcasts
@@ -422,5 +425,41 @@ void UFPSCombatComponent::MonitorWeapon(AFPSWeapon* Weapon)
 	});
     
 	// Broadcast initial state immediately so UI syncs up
-	OnWeaponAmmoChanged.Broadcast(Weapon->GetCurrentClipAmmo(), Weapon->GetMaxClipAmmo());
+	OnWeaponAmmoChanged.Broadcast(Weapon->GetCurrentClipAmmo(), EquippedWeapon->GetWeaponData()->MaxClipAmmo);
+}
+
+// TODO: We will need array of weapons to switch between them.
+void UFPSCombatComponent::OnWeaponHotkeyPressed()
+{
+	if (!EquippedWeapon) return;
+	
+	AFPSPlayerCharacter* OwnerCharacter = Cast<AFPSPlayerCharacter>(GetOwner());
+	if (!OwnerCharacter) return;
+	
+	UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+	if (!AnimInstance) return;
+	
+	if (bIsWeaponEquipped)
+	{
+		bIsWeaponEquipped = false;
+		
+		OwnerCharacter->GetMesh()->LinkAnimClassLayers(GetEquippedWeapon()->GetWeaponData()->UnEquippedAnimInstanceClass);
+		// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+		if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInstance))
+		{
+			// Now you can call the functions natively like any normal C++ object!
+			FPSAnimInterface->SetUnarmed(true);
+		}
+		return;
+	}
+	
+	OwnerCharacter->GetMesh()->LinkAnimClassLayers(EquippedWeapon->GetWeaponData()->EquippedAnimInstanceClass);
+
+	// Cast the object directly to the Interface (using the 'I' prefix, not 'U')
+	if (IFPSAnimInterface* FPSAnimInterface = Cast<IFPSAnimInterface>(AnimInstance))
+	{
+		// Now you can call the functions natively like any normal C++ object!
+		FPSAnimInterface->SetUnarmed(false);
+		FPSAnimInterface->SetFPSMode(OwnerCharacter->IsLocallyControlled());
+	}
 }

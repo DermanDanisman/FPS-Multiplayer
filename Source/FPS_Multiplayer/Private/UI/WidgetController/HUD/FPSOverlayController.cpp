@@ -31,7 +31,7 @@ void UFPSOverlayController::BroadcastInitialValues()
 	// Weapon Ammo (Only if we spawned with a gun)
 	if (AFPSWeapon* Weapon = GetCombatComponent()->GetEquippedWeapon())
 	{
-		OnWeaponAmmoChanged.Broadcast(Weapon->GetCurrentClipAmmo(), Weapon->GetMaxClipAmmo());
+		OnWeaponAmmoChanged.Broadcast(Weapon->GetCurrentClipAmmo(), Weapon->GetWeaponData()->MaxClipAmmo);
 	}
 }
 
@@ -84,14 +84,14 @@ void UFPSOverlayController::OnWeaponEquipped(AFPSWeapon* NewWeapon)
 	if (!NewWeapon || !NewWeapon->GetWeaponData()) return;
 
 	// 1. Update the "Static" Visuals (Happens once)
-	if (NewWeapon->GetWeaponIcon())
+	if (NewWeapon->GetWeaponData()->WeaponIcon)
 	{
-		OnWeaponIconChanged.Broadcast(NewWeapon->GetWeaponIcon());
-		OnCrosshairChangedUI.Broadcast(NewWeapon->GetCrosshairTexture());
+		OnWeaponIconChanged.Broadcast(NewWeapon->GetWeaponData()->WeaponIcon);
+		OnCrosshairChangedUI.Broadcast(NewWeapon->GetWeaponData()->CrosshairTexture);
 	}
 
 	// 2. Update the "Initial" Numbers (Happens once)
-	OnWeaponAmmoChanged.Broadcast(NewWeapon->GetCurrentClipAmmo(), NewWeapon->GetMaxClipAmmo());
+	OnWeaponAmmoChanged.Broadcast(NewWeapon->GetCurrentClipAmmo(), NewWeapon->GetWeaponData()->MaxClipAmmo);
 	OnCarriedAmmoChanged.Broadcast(GetCombatComponent()->GetCarriedAmmo());
 }
 

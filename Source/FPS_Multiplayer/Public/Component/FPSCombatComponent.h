@@ -77,6 +77,9 @@ public:
     
     UFUNCTION()
     void FinishWeaponEquip();
+    
+    UFUNCTION()
+    void OnWeaponHotkeyPressed();
 
 protected:
     
@@ -132,6 +135,8 @@ private:
     
     UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
     TObjectPtr<AFPSWeapon> EquippedWeapon;
+    
+    bool bIsWeaponEquipped = false;
     
     UPROPERTY(ReplicatedUsing = OnRep_CombatState)
     ECombatState CombatState;

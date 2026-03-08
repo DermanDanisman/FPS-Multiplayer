@@ -96,7 +96,7 @@ void UFPSItemAnimLayerBase::UpdateJumpFallData(float DeltaTime)
 void UFPSItemAnimLayerBase::UpdateSkeletalControlData()
 {
 	float Substraction;
-	if (bDisableHandIK)
+	if (bShouldDisableHandIK)
 		Substraction = 0.0f;
 	else
 		Substraction = 1.0f;
@@ -138,4 +138,3 @@ void UFPSItemAnimLayerBase::SetBaseLastPivotTime(float InTime)
 		GetFPSAnimInstance()->SetLastPivotTime(InTime);
 	}
 }
-

@@ -594,7 +594,7 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
     }
     
     bIsArmed = IsValid(NewWeapon);
-    CurrentHipFireOffset = NewWeapon->GetHipFireOffset();
+    /*CurrentHipFireOffset = NewWeapon->GetHipFireOffset();
     CurrentDistanceFromCamera = NewWeapon->GetDistanceFromCamera();
     RightElbowJointLocation = NewWeapon->GetRightHandJointTargetLocation();
     LeftElbowJointLocation = NewWeapon->GetLeftHandJointTargetLocation();
@@ -603,17 +603,17 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
     GunHorizontalOffsetCM = NewWeapon->GetGunHorizontalOffsetCM();
     GunVerticalOffsetCM = NewWeapon->GetGunVerticalOffsetCM();
     GunPitchZeroingAngle = NewWeapon->GetGunPitchZeroingAngle();
-    GunYawZeroingAngle = NewWeapon->GetGunYawZeroingAngle();
+    GunYawZeroingAngle = NewWeapon->GetGunYawZeroingAngle();*/
     
     CachedSights.Empty();
     TArray<UMeshComponent*> WeaponMeshes;
     NewWeapon->GetComponents<UMeshComponent>(WeaponMeshes);
-    const FName OpticSocket = NewWeapon->GetOpticSocketName();
+    /*const FName OpticSocket = NewWeapon->GetOpticSocketName();
     const FName FrontSocket = NewWeapon->GetFrontSightSocketName();
     const FName RearSocket = NewWeapon->GetRearSightSocketName();
     const FString OpticPrefix = NewWeapon->GetOpticTagPrefix();
     const FString FrontPrefix = NewWeapon->GetFrontSightTagPrefix();
-    const FString RearPrefix = NewWeapon->GetRearSightTagPrefix();
+    const FString RearPrefix = NewWeapon->GetRearSightTagPrefix();*/
 
     for (UMeshComponent* Mesh : WeaponMeshes)
     {
@@ -623,7 +623,7 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
           FString TagString = Tag.ToString();
           FString SightType, IndexStr;
           
-          if (TagString.Split(TEXT("_"), &SightType, &IndexStr, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
+          /*if (TagString.Split(TEXT("_"), &SightType, &IndexStr, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
           {
              int32 Index = FCString::Atoi(*IndexStr);
              // TYPE A: Red Dot
@@ -666,7 +666,7 @@ void UFPSAnimInstance::OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon)
                 }
                 CachedSights.Add(NewData);
              }
-          }
+          }*/
        }
     }
     

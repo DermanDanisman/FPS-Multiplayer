@@ -56,7 +56,7 @@ public:
 	// A proxy function so the AnimGraph can safely set the pivot time on the Base Instance
 	UFUNCTION(BlueprintCallable, Category = "Turn In Place", meta=(BlueprintThreadSafe))
 	void SetBaseLastPivotTime(float InTime);
-	
+
 protected:
 	
 	//
@@ -242,7 +242,7 @@ protected:
 	bool bRaiseWeaponAfterFiringWhenCrouched;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
-	bool bDisableHandIK;
+	bool bShouldDisableHandIK;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
 	bool bEnableLeftHandPoseOverride;

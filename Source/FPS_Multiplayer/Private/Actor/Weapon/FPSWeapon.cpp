@@ -47,6 +47,9 @@ void AFPSWeapon::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	if (WeaponData->WeaponMesh)
+		WeaponMesh->SetSkeletalMesh(WeaponData->WeaponMesh);
+	
 	// Ensure the widget is hidden by default when the game starts.
 	if (IsValid(InteractionWidget)) 
 	{
@@ -218,7 +221,7 @@ void AFPSWeapon::Server_Fire_Implementation(const FVector& TraceHitTarget)
 	}
 	
 	// Server needs to broadcast too so the Host UI updates
-	OnAmmoChanged.ExecuteIfBound(CurrentClipAmmo, GetMaxClipAmmo());
+	OnAmmoChanged.ExecuteIfBound(CurrentClipAmmo, WeaponData->MaxClipAmmo);
 
 	// --- 3. REPLICATE FX ---
 	// Tell other clients to play sounds and flashes
@@ -291,7 +294,7 @@ void AFPSWeapon::PlayFireEffects(const FVector& TraceHitTarget) const
 
 void AFPSWeapon::OnRep_CurrentClipAmmo()
 {
-	OnAmmoChanged.ExecuteIfBound(CurrentClipAmmo, GetMaxClipAmmo());
+	OnAmmoChanged.ExecuteIfBound(CurrentClipAmmo, WeaponData->MaxClipAmmo);
 }
 
 // =========================================================================

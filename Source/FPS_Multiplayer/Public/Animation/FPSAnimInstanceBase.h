@@ -271,6 +271,23 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "Aiming")
 	float AimYaw;
 	
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming")
+	FVector AimTargetLocation;
+	
+	//
+	// --- Weapon Offset Data ---
+	//
+    
+	UPROPERTY(BlueprintReadOnly, Category = "FPS | Weapon Offsets")
+	FTransform HipfireOffsetTransform;
+    
+	UPROPERTY(BlueprintReadOnly, Category = "FPS | Weapon Offsets")
+	FTransform ADSOffsetTransform;
+    
+	// This is the final mathematically blended transform sent to the AnimGraph!
+	UPROPERTY(BlueprintReadOnly, Category = "FPS | Weapon Offsets")
+	FTransform CurrentWeaponOffsetTransform;
+	
 	//
 	// --- Settings Data ---
 	//
@@ -342,6 +359,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "FPS")
 	bool bIsADSUpper;
 	
+	UPROPERTY(BlueprintReadOnly, Category = "FPS")
+	bool bIsArmed;
+	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "FPS")
 	float FPSPelvisWeight = 0.2f;
 	
@@ -391,9 +411,14 @@ public:
 	
 	UPROPERTY(BlueprintReadOnly, Category = "FPS | Procedural Data")
 	float CrouchAlpha;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "FPS | Procedural Data")
+	FTransform LeftHandTargetTransform;
 
 	UFUNCTION(BlueprintCallable)
 	bool ShouldEnableControlRig() const;
+	
+	void GatherLeftHandTransform();
 	
 	//
 	// --- Turn In Place Functions ---
@@ -410,6 +435,18 @@ private:
 	// The hidden timer (Transient because we don't need to save this)
 	UPROPERTY(Transient)
 	float PivotCancelTimer;
+	
+	UPROPERTY(Transient) 
+	float AimDistance = 20000.f;
+	
+	// Tracks the 0.0 to 1.0 transition between Hipfire and ADS
+	UPROPERTY(Transient)
+	float AimingAlpha = 0.0f;
+	
+	UPROPERTY(EditAnywhere, Category = "Aiming")
+	bool bDrawProxyAimDebug = true;
+	
+	FDelegateHandle OnWeaponEquippedDelegateHandle;
 	
 	//
 	// --- Thread Safe Functions ---
@@ -432,6 +469,13 @@ private:
 	void UpdatePelvisWeight();
 	
 	//
+	// --- Delegate Functions ---
+	//
+	
+	UFUNCTION()
+	void OnCharacterWeaponEquipped(AFPSWeapon* NewWeapon);
+	
+	//
 	// --- Helper Functions ---
 	//
 	
@@ -443,4 +487,10 @@ private:
 	) const;
 	
 	ELocomotionCardinalDirection GetOppositeCardinalDirection(ELocomotionCardinalDirection CurrentDirection) const;
+	
+	//
+	// --- Montage Notifies ---
+	//
+	UFUNCTION()
+	void AnimNotify_WeaponGrab();
 };

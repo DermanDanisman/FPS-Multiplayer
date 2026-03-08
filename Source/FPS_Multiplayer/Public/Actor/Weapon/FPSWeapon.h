@@ -107,50 +107,7 @@ public:
     UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
     FORCEINLINE UFPSWeaponData* GetWeaponData() const { return WeaponData; }
 	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE FString GetWeaponName() const { return WeaponData ? WeaponData->WeaponName : FString(); }
-	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE UTexture2D* GetWeaponIcon() const { return WeaponData ? WeaponData->WeaponIcon : nullptr; }
-	UFUNCTION(BlueprintPure, Category = "Weapon|Getters")
-	FORCEINLINE UTexture2D* GetCrosshairTexture() const { return WeaponData ? WeaponData->CrosshairTexture : nullptr; }
-    
-    // --- Shortcuts to DataAsset properties for cleaner code elsewhere ---
-    FORCEINLINE float GetFireDelay() const { return WeaponData ? WeaponData->FireDelay : 0.1f; }
-    FORCEINLINE bool IsAutomatic() const { return WeaponData ? WeaponData->bIsAutomatic : false; }
-    FORCEINLINE int32 GetMaxClipAmmo() const { return WeaponData ? WeaponData->MaxClipAmmo : 30; }
     FORCEINLINE int32 GetCurrentClipAmmo() const { return CurrentClipAmmo; }
-	FORCEINLINE float GetWeaponDamage() const { return WeaponData ? WeaponData->Damage : 100.f; }
-    FORCEINLINE float GetWeaponRange() const { return WeaponData ? WeaponData->Range : 10000.f; }
-    
-    // --- Visuals & IK ---
-	FORCEINLINE TSubclassOf<UAnimInstance> GetEquippedAnimInstanceClass() const { return WeaponData ? WeaponData->EquippedAnimInstanceClass : nullptr;}
-	FORCEINLINE TSubclassOf<UAnimInstance> GetUnEquippedAnimInstanceClass() const { return WeaponData ? WeaponData->UnEquippedAnimInstanceClass : nullptr; }
-	FORCEINLINE UAnimMontage* GetEquipMontage() const { return WeaponData ? WeaponData->EquipMontage : nullptr; }
-	FORCEINLINE UAnimMontage* GetUnEquipMontage() const { return WeaponData ? WeaponData->UnEquipMontage : nullptr; }
-    FORCEINLINE FName GetWeaponHandSocketName() const { return WeaponData ? WeaponData->WeaponHandSocketName : FName(); }
-    FORCEINLINE FWeaponMovementData GetMovementData() const { return WeaponData ? WeaponData->WeaponMovementData : FWeaponMovementData(); }
-	FORCEINLINE UAnimMontage* GetReloadMontage() const { return WeaponData ? WeaponData->ReloadMontage : nullptr; }
-    
-    // --- Procedural Aiming Getters ---
-    FORCEINLINE FTransform GetHipFireOffset() const { return WeaponData ? WeaponData->HipFireOffset : FTransform().Identity; }
-    FORCEINLINE float GetDistanceFromCamera() const { return WeaponData ? WeaponData->DistanceFromCamera : 0.f; }
-    FORCEINLINE float GetTimeToAim() const { return WeaponData ? WeaponData->TimeToAim : 0.25f; }
-    FORCEINLINE float GetTimeFromAim() const { return WeaponData ? WeaponData->TimeFromAim : 0.2f; }
-	FORCEINLINE float GetGunHorizontalOffsetCM() const { return WeaponData ? WeaponData->GunHorizontalOffsetCM : 5.0f; }
-	FORCEINLINE float GetGunVerticalOffsetCM() const { return WeaponData ? WeaponData->GunVerticalOffsetCM : 15.0f; }
-	FORCEINLINE float GetGunPitchZeroingAngle() const { return WeaponData ? WeaponData->GunPitchZeroingAngle : -1.75f; }
-	FORCEINLINE float GetGunYawZeroingAngle() const { return WeaponData ? WeaponData->GunYawZeroingAngle : 0.f; }
-    
-    // --- IK Locators ---
-    FORCEINLINE FVector GetRightHandJointTargetLocation() const { return WeaponData ? WeaponData->RightElbowJointLocation : FVector::ZeroVector; }
-	FORCEINLINE FVector GetLeftHandJointTargetLocation() const { return WeaponData ? WeaponData->LeftElbowJointLocation : FVector::ZeroVector; }
-
-    // --- Sight Config ---
-    FORCEINLINE FName GetOpticSocketName() const { return WeaponData ? WeaponData->OpticSocketName : FName(); }
-    FORCEINLINE FName GetFrontSightSocketName() const { return WeaponData ? WeaponData->FrontSightSocketName : FName(); }
-    FORCEINLINE FName GetRearSightSocketName() const { return WeaponData ? WeaponData->RearSightSocketName : FName(); }
-    FORCEINLINE FString GetOpticTagPrefix() const { return WeaponData ? WeaponData->OpticTagPrefix : FString(); }
-    FORCEINLINE FString GetFrontSightTagPrefix() const { return WeaponData ? WeaponData->FrontSightTagPrefix : FString(); }
-    FORCEINLINE FString GetRearSightTagPrefix() const { return WeaponData ? WeaponData->RearSightTagPrefix : FString(); }
 
     // =========================================================================
     //                        INTERFACE IMPLEMENTATION

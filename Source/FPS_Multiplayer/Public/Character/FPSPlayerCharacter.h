@@ -227,6 +227,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
 	TObjectPtr<UInputAction> InteractAction;
 	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
+	TObjectPtr<UInputAction> PrimaryWeaponHotkeyAction;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
+	TObjectPtr<UInputAction> SecondaryWeaponHotkeyAction;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enhanced Input")
+	TObjectPtr<UInputAction> SideArmWeaponHotkeyAction;
+	
 	// =========================================================================
 	//                        INPUT FUNCTIONS
 	// =========================================================================
@@ -257,6 +266,12 @@ protected:
 	
 	// Called when Interaction Key is pressed
 	void OnInteractedPressed(const FInputActionValue& Value);
+	
+	void OnPrimaryWeaponHotkeyPressed(const FInputActionValue& Value);
+	
+	void OnSecondaryWeaponHotkeyPressed(const FInputActionValue& Value);
+	
+	void OnSideArmWeaponHotkeyPressed(const FInputActionValue& Value);
 	
 	// =========================================================================
 	//                        STATE GATEKEEPERS (Rulesets)
@@ -315,11 +330,22 @@ protected:
 	UFUNCTION()
 	void OnRep_ReplicatedAcceleration();
 	
+	// =========================================================================
+	//                       ANIMATION LAYERS
+	// =========================================================================
+	
 	/** * The default animation layer class used when the player spawns or drops all weapons.
 	 * (e.g., ABP_Unarmed_Layers) 
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Animation")
 	TSubclassOf<UAnimInstance> DefaultAnimLayerClass;
+	
+	// =========================================================================
+	//                       BLUEPRINT IMPLEMENTABLE EVENTS
+	// =========================================================================
+	
+	UFUNCTION(BlueprintImplementableEvent, Category = "Weapon Events")
+	void TriggerTimelineAimFOV(bool bShouldReverse);
 
 private:
 	
@@ -337,6 +363,15 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "Components|Actor Components")
 	TObjectPtr<UWidgetComponent> OverheadWidgetComponent;
+	
+	/*UPROPERTY(VisibleAnywhere, Category = "Weapons")
+	TObjectPtr<USkeletalMeshComponent> PistolMesh;
+	
+	UPROPERTY(VisibleAnywhere, Category = "Weapons")
+	TObjectPtr<USkeletalMeshComponent> RifleMesh;
+	
+	UPROPERTY(VisibleAnywhere, Category = "Weapons")
+	TObjectPtr<USkeletalMeshComponent> ShotgunMesh;*/
 	
 	// =========================================================================
 	//                       HELPER FUNCTIONS & VARIABLES
